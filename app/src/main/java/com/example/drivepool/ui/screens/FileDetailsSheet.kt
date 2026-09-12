@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
@@ -29,6 +30,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +66,7 @@ fun FileDetailsSheet(
     onDelete: (PoolFile) -> Unit,
     onRebalance: (file: PoolFile, targetNodeId: String) -> Unit,
     onView: (PoolFile) -> Unit = {},
+    onShare: (PoolFile) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -217,22 +220,44 @@ fun FileDetailsSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Primary Action: Open / View File
-            Button(
-                onClick = {
-                    onDismiss()
-                    onView(file)
-                },
+            // Primary Actions: Open / View File and Share (WhatsApp, etc.)
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.FileOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Open / View File", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onView(file)
+                    },
+                    modifier = Modifier.weight(1.3f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FileOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open / View", fontWeight = FontWeight.Bold)
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        onDismiss()
+                        onShare(file)
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share", fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

@@ -8,8 +8,15 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,8 +28,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -34,8 +43,12 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +85,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -110,12 +124,34 @@ fun launchExternalViewer(context: Context, file: File, mimeType: String) {
     }
 }
 
+fun shareFile(context: Context, file: File, mimeType: String) {
+    try {
+        val uri: Uri = FileProvider.getUriForFile(
+            context,
+            "com.example.drivepool.fileprovider",
+            file
+        )
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = if (mimeType.isNotBlank()) mimeType else "*/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(sendIntent, "Share \"${file.name}\" via...")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not share file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 fun FileViewerDialog(
     target: ViewingFileTarget,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var showControls by remember { mutableStateOf(true) }
+
     val isImage = target.mimeType.startsWith("image/") ||
             target.name.endsWith(".jpg", ignoreCase = true) ||
             target.name.endsWith(".jpeg", ignoreCase = true) ||
@@ -137,74 +173,148 @@ fun FileViewerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = false
         )
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Action Bar
-                Row(
+            // 1. Full Screen Media Content
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    isImage -> ImageViewer(
+                        file = target.file,
+                        showControls = showControls,
+                        onToggleControls = { showControls = !showControls },
+                        onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
+                    )
+                    isPdf -> PdfViewer(
+                        file = target.file,
+                        showControls = showControls,
+                        onToggleControls = { showControls = !showControls },
+                        onOpenExternal = { launchExternalViewer(context, target.file, "application/pdf") }
+                    )
+                    isText -> TextViewer(
+                        file = target.file,
+                        showControls = showControls,
+                        onToggleControls = { showControls = !showControls }
+                    )
+                    else -> GenericDocumentViewer(
+                        target = target,
+                        onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
+                    )
+                }
+            }
+
+            // 2. Animated Floating Top Header Bar
+            AnimatedVisibility(
+                visible = showControls,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+            ) {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .statusBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xDD0F172A),
+                    shadowElevation = 8.dp
                 ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = target.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = "${DriveNode.formatBytes(target.sizeBytes)} • ${target.sourceDescription}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Open With External App Button
-                    IconButton(
-                        onClick = { launchExternalViewer(context, target.file, target.mimeType) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.OpenInNew,
-                            contentDescription = "Open with external app",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color.White
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = target.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${DriveNode.formatBytes(target.sizeBytes)} • ${target.sourceDescription}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF94A3B8),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // Fullscreen button (hide controls)
+                        IconButton(onClick = { showControls = false }) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Full Screen",
+                                tint = Color.White
+                            )
+                        }
+
+                        // Share via WhatsApp, Gmail, system share sheet
+                        IconButton(onClick = { shareFile(context, target.file, target.mimeType) }) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share via WhatsApp / other apps",
+                                tint = Color(0xFF4ADE80)
+                            )
+                        }
+
+                        // External app button
+                        IconButton(onClick = { launchExternalViewer(context, target.file, target.mimeType) }) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Open with external app",
+                                tint = Color(0xFF60A5FA)
+                            )
+                        }
                     }
                 }
+            }
 
-                HorizontalDivider()
-
-                // Content Viewers
-                Box(
+            // 3. Floating Restore Controls Button when in pure Full Screen
+            if (!showControls) {
+                Surface(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(16.dp),
+                    shape = CircleShape,
+                    color = Color(0x99000000),
+                    shadowElevation = 4.dp
                 ) {
-                    when {
-                        isImage -> ImageViewer(
-                            file = target.file,
-                            onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
-                        )
-                        isPdf -> PdfViewer(file = target.file, onOpenExternal = { launchExternalViewer(context, target.file, "application/pdf") })
-                        isText -> TextViewer(file = target.file)
-                        else -> GenericDocumentViewer(
-                            target = target,
-                            onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
+                    IconButton(
+                        onClick = { showControls = true },
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "Show Controls",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -214,13 +324,95 @@ fun FileViewerDialog(
 }
 
 @Composable
+fun ZoomControlsBar(
+    scale: Float,
+    minScale: Float = 1f,
+    maxScale: Float = 8f,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xDD0F172A),
+        shadowElevation = 6.dp,
+        modifier = modifier
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            IconButton(
+                onClick = onZoomOut,
+                enabled = scale > minScale + 0.05f,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ZoomOut,
+                    contentDescription = "Zoom Out",
+                    tint = if (scale > minScale + 0.05f) Color.White else Color.DarkGray,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onReset)
+                    .background(Color(0xFF334155))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "${(scale * 100).toInt()}%",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            IconButton(
+                onClick = onZoomIn,
+                enabled = scale < maxScale - 0.05f,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ZoomIn,
+                    contentDescription = "Zoom In",
+                    tint = if (scale < maxScale - 0.05f) Color.White else Color.DarkGray,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            if (scale > minScale + 0.05f) {
+                IconButton(
+                    onClick = onReset,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RestartAlt,
+                        contentDescription = "Reset Zoom to Fit",
+                        tint = Color(0xFF60A5FA),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun ImageViewer(
     file: File,
+    showControls: Boolean,
+    onToggleControls: () -> Unit,
     onOpenExternal: () -> Unit
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
@@ -244,9 +436,8 @@ fun ImageViewer(
                     return@withContext
                 }
 
-                // Subsample large images to prevent OOM
                 var sampleSize = 1
-                while (opts.outWidth / sampleSize > 2048 || opts.outHeight / sampleSize > 2048) {
+                while (opts.outWidth / sampleSize > 2560 || opts.outHeight / sampleSize > 2560) {
                     sampleSize *= 2
                 }
                 opts.inJustDecodeBounds = false
@@ -270,14 +461,29 @@ fun ImageViewer(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onToggleControls() },
+                    onDoubleTap = {
+                        if (scale > 1.2f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            scale = 2.5f
+                            offset = Offset.Zero
+                        }
+                    }
+                )
+            }
+            .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 5f)
-                    val maxOffsetX = (size.width * (scale - 1f)) / 2f
-                    val maxOffsetY = (size.height * (scale - 1f)) / 2f
+                    val newScale = (scale * zoom).coerceIn(1f, 8f)
+                    val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                    val maxOffsetY = (size.height * (newScale - 1f)) / 2f
                     offset = Offset(
-                        x = (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
-                        y = (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                        x = (offset.x + pan.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
+                        y = (offset.y + pan.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
                     )
+                    scale = newScale
                 }
             },
         contentAlignment = Alignment.Center
@@ -304,20 +510,34 @@ fun ImageViewer(
                         )
                 )
 
-                if (scale > 1.05f) {
-                    FilledTonalButton(
-                        onClick = {
+                // Floating Zoom Controls Bar
+                AnimatedVisibility(
+                    visible = showControls || scale > 1.05f,
+                    enter = fadeIn() + slideInVertically { it },
+                    exit = fadeOut() + slideOutVertically { it },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 24.dp)
+                ) {
+                    ZoomControlsBar(
+                        scale = scale,
+                        minScale = 1f,
+                        maxScale = 8f,
+                        onZoomIn = {
+                            val nextScale = minOf(8f, scale + 0.5f)
+                            scale = nextScale
+                        },
+                        onZoomOut = {
+                            val nextScale = maxOf(1f, scale - 0.5f)
+                            scale = nextScale
+                            if (nextScale == 1f) offset = Offset.Zero
+                        },
+                        onReset = {
                             scale = 1f
                             offset = Offset.Zero
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.ZoomOut, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Reset Zoom (${(scale * 100).toInt()}%)")
-                    }
+                        }
+                    )
                 }
             }
             else -> {
@@ -343,6 +563,8 @@ fun ImageViewer(
 @Composable
 fun PdfViewer(
     file: File,
+    showControls: Boolean,
+    onToggleControls: () -> Unit,
     onOpenExternal: () -> Unit
 ) {
     var renderer by remember { mutableStateOf<PdfRenderer?>(null) }
@@ -352,16 +574,28 @@ fun PdfViewer(
     var currentPageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
     fun renderPage(index: Int) {
         val r = renderer ?: return
         if (index < 0 || index >= r.pageCount) return
         try {
             val page = r.openPage(index)
-            val bmp = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+            // 2.5x supersampling for razor sharp clarity on zoom
+            val superSample = 2.5f
+            val bmp = Bitmap.createBitmap(
+                (page.width * superSample).toInt(),
+                (page.height * superSample).toInt(),
+                Bitmap.Config.ARGB_8888
+            )
             page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             page.close()
             currentPageBitmap = bmp
             currentPageIndex = index
+            // Reset zoom to clean fit on page flip
+            scale = 1f
+            offset = Offset.Zero
         } catch (e: Exception) {
             errorMessage = "Page render error: ${e.localizedMessage}"
         }
@@ -393,7 +627,10 @@ fun PdfViewer(
 
     if (errorMessage != null) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -406,56 +643,183 @@ fun PdfViewer(
             }
         }
     } else {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // PDF Page Canvas
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(Color(0xFFE0E0E0)),
-                contentAlignment = Alignment.Center
-            ) {
-                currentPageBitmap?.let { bmp ->
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "PDF Page ${currentPageIndex + 1}",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1E1E1E))
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onToggleControls() },
+                        onDoubleTap = {
+                            if (scale > 1.2f) {
+                                scale = 1f
+                                offset = Offset.Zero
+                            } else {
+                                scale = 2.5f
+                                offset = Offset.Zero
+                            }
+                        }
                     )
-                } ?: Text("Rendering PDF page...", color = Color.DarkGray)
-            }
-
-            // PDF Controls Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                IconButton(
-                    onClick = { if (currentPageIndex > 0) renderPage(currentPageIndex - 1) },
-                    enabled = currentPageIndex > 0
-                ) {
-                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Previous Page")
                 }
-
-                Text(
-                    text = "Page ${currentPageIndex + 1} of $pageCount",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val newScale = (scale * zoom).coerceIn(1f, 6f)
+                        val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                        val maxOffsetY = (size.height * (newScale - 1f)) / 2f
+                        offset = Offset(
+                            x = (offset.x + pan.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
+                            y = (offset.y + pan.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
+                        )
+                        scale = newScale
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            currentPageBitmap?.let { bmp ->
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "PDF Page ${currentPageIndex + 1}",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 40.dp, horizontal = 8.dp)
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y
+                        )
                 )
+            } ?: CircularProgressIndicator(color = Color.White)
 
-                IconButton(
-                    onClick = { if (currentPageIndex < pageCount - 1) renderPage(currentPageIndex + 1) },
-                    enabled = currentPageIndex < pageCount - 1
+            // Bottom Controls Bar (Page Nav + Zoom)
+            AnimatedVisibility(
+                visible = showControls || scale > 1.05f,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 20.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xDD0F172A),
+                    shadowElevation = 8.dp
                 ) {
-                    Icon(imageVector = Icons.Default.ArrowForward, contentDescription = "Next Page")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Page Nav
+                        IconButton(
+                            onClick = { if (currentPageIndex > 0) renderPage(currentPageIndex - 1) },
+                            enabled = currentPageIndex > 0,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Previous Page",
+                                tint = if (currentPageIndex > 0) Color.White else Color.DarkGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "${currentPageIndex + 1} / $pageCount",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+
+                        IconButton(
+                            onClick = { if (currentPageIndex < pageCount - 1) renderPage(currentPageIndex + 1) },
+                            enabled = currentPageIndex < pageCount - 1,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = "Next Page",
+                                tint = if (currentPageIndex < pageCount - 1) Color.White else Color.DarkGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(Color(0xFF334155))
+                        )
+
+                        // Zoom Controls
+                        IconButton(
+                            onClick = {
+                                val next = maxOf(1f, scale - 0.5f)
+                                scale = next
+                                if (next == 1f) offset = Offset.Zero
+                            },
+                            enabled = scale > 1.05f,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ZoomOut,
+                                contentDescription = "Zoom Out",
+                                tint = if (scale > 1.05f) Color.White else Color.DarkGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                }
+                                .background(Color(0xFF334155))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "${(scale * 100).toInt()}%",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                scale = minOf(6f, scale + 0.5f)
+                            },
+                            enabled = scale < 5.95f,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ZoomIn,
+                                contentDescription = "Zoom In",
+                                tint = if (scale < 5.95f) Color.White else Color.DarkGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        if (scale > 1.05f) {
+                            IconButton(
+                                onClick = {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = "Reset Zoom",
+                                    tint = Color(0xFF60A5FA),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -463,8 +827,13 @@ fun PdfViewer(
 }
 
 @Composable
-fun TextViewer(file: File) {
+fun TextViewer(
+    file: File,
+    showControls: Boolean,
+    onToggleControls: () -> Unit
+) {
     var textContent by remember { mutableStateOf<String?>(null) }
+    var fontSizeSp by remember { mutableFloatStateOf(13f) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -482,45 +851,104 @@ fun TextViewer(file: File) {
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1E1E1E))
-            .padding(12.dp)
+            .background(Color(0xFF111827))
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            FilledTonalButton(
-                onClick = {
-                    textContent?.let {
-                        clipboard.setText(AnnotatedString(it))
-                        Toast.makeText(context, "Copied text to clipboard", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            ) {
-                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Copy Text", fontSize = 12.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // Text Content
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(top = 80.dp, bottom = 80.dp, start = 16.dp, end = 16.dp)
                 .verticalScroll(rememberScrollState())
                 .horizontalScroll(rememberScrollState())
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onToggleControls() })
+                }
         ) {
             Text(
                 text = textContent ?: "Loading text...",
-                color = Color(0xFFD4D4D4),
+                color = Color(0xFFE2E8F0),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                lineHeight = 18.sp
+                fontSize = fontSizeSp.sp,
+                lineHeight = (fontSizeSp * 1.5f).sp
             )
+        }
+
+        // Floating Bottom Text Action Bar (Zoom Font & Copy)
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xDD0F172A),
+                shadowElevation = 6.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = { fontSizeSp = maxOf(10f, fontSizeSp - 2f) },
+                        enabled = fontSizeSp > 10f,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Text("A-", color = if (fontSizeSp > 10f) Color.White else Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { fontSizeSp = 13f }
+                            .background(Color(0xFF334155))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${fontSizeSp.toInt()}sp",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { fontSizeSp = minOf(26f, fontSizeSp + 2f) },
+                        enabled = fontSizeSp < 26f,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Text("A+", color = if (fontSizeSp < 26f) Color.White else Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(20.dp)
+                            .background(Color(0xFF334155))
+                    )
+
+                    FilledTonalButton(
+                        onClick = {
+                            textContent?.let {
+                                clipboard.setText(AnnotatedString(it))
+                                Toast.makeText(context, "Copied text to clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy", fontSize = 12.sp)
+                    }
+                }
+            }
         }
     }
 }
@@ -540,49 +968,52 @@ fun GenericDocumentViewer(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFF0B1120))
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .size(72.dp)
+                .size(80.dp)
                 .clip(CircleShape)
-                .background(if (isOffice) Color(0xFF2B579A).copy(alpha = 0.15f) else MaterialTheme.colorScheme.secondaryContainer),
+                .background(if (isOffice) Color(0xFF2B579A).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Description,
                 contentDescription = null,
-                tint = if (isOffice) Color(0xFF2B579A) else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp)
+                tint = if (isOffice) Color(0xFF60A5FA) else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Text(
             text = target.name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = if (isOffice)
-                "Office document ready. Open with Google Docs, Microsoft Office, or WPS Office to view and edit."
+                "Office document ready. Open with Google Docs, Sheets, Microsoft 365, or WPS Office to view and edit."
             else
-                "File format ready to open in external application.",
+                "File format ready to open with compatible external app.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = Color(0xFF94A3B8),
+            modifier = Modifier.padding(horizontal = 16.dp)
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Button(
             onClick = onOpenExternal,
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(14.dp)
         ) {
             Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))

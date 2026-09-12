@@ -52,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +71,7 @@ fun UnifiedFilesScreen(
     onSwitchToPhone: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(state.statusMessage) {
@@ -313,7 +315,8 @@ fun UnifiedFilesScreen(
             onDismiss = { viewModel.onFileSelected(null) },
             onDelete = { viewModel.deleteFile(it) },
             onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) },
-            onView = { viewModel.previewPoolFile(it) }
+            onView = { viewModel.previewPoolFile(it) },
+            onShare = { viewModel.sharePoolFile(context, it) }
         )
     }
 

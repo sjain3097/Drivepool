@@ -1,5 +1,6 @@
 package com.example.drivepool.ui.viewmodel
 
+import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -415,6 +416,32 @@ class DrivePoolViewModel(
 
     fun dismissFileViewer() {
         _uiState.update { it.copy(viewingTarget = null) }
+    }
+
+    fun sharePoolFile(context: Context, file: PoolFile) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Preparing \"${file.name}\" to share...") }
+            val result = repository.prepareFileForViewing(file)
+            _uiState.update { it.copy(isViewerLoading = false, statusMessage = null) }
+            result.onSuccess { localFile ->
+                com.example.drivepool.ui.screens.viewer.shareFile(context, localFile, file.mimeType)
+            }.onFailure { err ->
+                handlePreviewFailure(err)
+            }
+        }
+    }
+
+    fun sharePhoneFile(context: Context, file: LocalPhoneFile) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Preparing \"${file.name}\" to share...") }
+            val result = repository.preparePhoneFileForViewing(file)
+            _uiState.update { it.copy(isViewerLoading = false, statusMessage = null) }
+            result.onSuccess { localFile ->
+                com.example.drivepool.ui.screens.viewer.shareFile(context, localFile, file.mimeType)
+            }.onFailure { err ->
+                _uiState.update { it.copy(statusMessage = "Could not share file: ${err.message}") }
+            }
+        }
     }
 
     fun uploadFile(name: String, sizeBytes: Long, mimeType: String) {

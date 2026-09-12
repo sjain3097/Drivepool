@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
@@ -605,6 +606,10 @@ fun LocalPhoneFilesScreen(
             file = file,
             onDismiss = { viewModel.onPhoneFileSelected(null) },
             onView = { viewModel.previewPhoneFile(file) },
+            onShare = {
+                viewModel.sharePhoneFile(context, file)
+                viewModel.onPhoneFileSelected(null)
+            },
             onUpload = {
                 viewModel.uploadLocalPhoneFile(file)
                 viewModel.onPhoneFileSelected(null)
@@ -795,6 +800,7 @@ private fun PhoneFileDetailsSheet(
     file: LocalPhoneFile,
     onDismiss: () -> Unit,
     onView: () -> Unit,
+    onShare: () -> Unit,
     onUpload: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -881,22 +887,44 @@ private fun PhoneFileDetailsSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Primary Action: Open / View File
-            Button(
-                onClick = {
-                    onDismiss()
-                    onView()
-                },
+            // Primary Actions: Open / View File and Share
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.FileOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Open / View File", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onView()
+                    },
+                    modifier = Modifier.weight(1.3f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FileOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open / View", fontWeight = FontWeight.Bold)
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        onDismiss()
+                        onShare()
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share", fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
