@@ -220,7 +220,18 @@ class RealGoogleDriveService(
     }
 
     override suspend fun downloadFile(node: DriveNode, remoteFileId: String, targetFile: java.io.File): Boolean = withContext(Dispatchers.IO) {
-        val token = getOAuthToken(node.email).getOrNull() ?: return@withContext false
+        if (remoteFileId.startsWith("virtual_", ignoreCase = true) || remoteFileId.startsWith("mock_", ignoreCase = true)) {
+            Log.i(TAG, "Virtual simulated file ID detected ($remoteFileId) - skipping remote Drive HTTP download")
+            throw java.io.FileNotFoundException("Virtual simulated file ID: $remoteFileId")
+        }
+
+        val tokenResult = getOAuthToken(node.email)
+        val token = tokenResult.getOrNull()
+        if (token == null) {
+            val ex = tokenResult.exceptionOrNull()
+            if (ex != null) throw ex
+            return@withContext false
+        }
         try {
             val url = URL("https://www.googleapis.com/drive/v3/files/$remoteFileId?alt=media")
             val conn = url.openConnection() as HttpURLConnection
@@ -229,7 +240,8 @@ class RealGoogleDriveService(
             conn.connectTimeout = 15000
             conn.readTimeout = 30000
 
-            if (conn.responseCode in 200..299) {
+            val code = conn.responseCode
+            if (code in 200..299) {
                 targetFile.parentFile?.mkdirs()
                 conn.inputStream.use { input ->
                     targetFile.outputStream().use { output ->
@@ -238,12 +250,19 @@ class RealGoogleDriveService(
                 }
                 true
             } else {
-                Log.w(TAG, "Download failed with HTTP ${conn.responseCode}")
-                false
+                val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: conn.responseMessage
+                Log.w(TAG, "Download failed with HTTP $code: $err")
+                if (code == 404 || err.contains("notFound", ignoreCase = true)) {
+                    throw java.io.FileNotFoundException("File not found on Google Drive (HTTP 404): $remoteFileId")
+                } else {
+                    throw Exception("Google Drive API responded with HTTP $code: $err")
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to download file from Google Drive: ${e.message}", e)
-            false
+            if (e !is java.io.FileNotFoundException) {
+                Log.e(TAG, "Failed to download file from Google Drive: ${e.message}", e)
+            }
+            throw e
         }
     }
 

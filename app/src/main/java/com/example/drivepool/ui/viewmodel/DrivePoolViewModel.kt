@@ -183,6 +183,7 @@ class DrivePoolViewModel(
 
     private var pendingUploadFile: LocalPhoneFile? = null
     private var pendingVirtualUpload: Triple<String, Long, String>? = null
+    private var pendingPreviewFile: PoolFile? = null
 
     private fun handleUploadFailure(error: Throwable) {
         val msg = error.message ?: "Upload failed"
@@ -230,6 +231,55 @@ class DrivePoolViewModel(
         }
     }
 
+    private fun handlePreviewFailure(error: Throwable) {
+        val msg = error.message ?: "Could not open file"
+
+        val consentIntent = when {
+            error is DriveConsentRequiredException -> error.consentIntent
+            error.cause is DriveConsentRequiredException -> (error.cause as DriveConsentRequiredException).consentIntent
+            error is com.google.android.gms.auth.UserRecoverableAuthException -> error.intent
+            error.cause is com.google.android.gms.auth.UserRecoverableAuthException -> (error.cause as com.google.android.gms.auth.UserRecoverableAuthException).intent
+            else -> null
+        }
+
+        if (consentIntent != null) {
+            _uiState.update {
+                it.copy(
+                    authConsentIntent = consentIntent,
+                    statusMessage = "Google Drive authorization required to view file. Please approve access."
+                )
+            }
+            return
+        }
+
+        val isUnregistered = error is DriveUnregisteredConsoleException ||
+                error.cause is DriveUnregisteredConsoleException ||
+                msg.contains("UnregisteredOnApiConsole", ignoreCase = true)
+
+        if (isUnregistered) {
+            _uiState.update {
+                it.copy(
+                    showAuthSetupDialog = true,
+                    authErrorMessage = msg,
+                    statusMessage = "Google Drive download blocked: App not registered in Google Cloud Console."
+                )
+            }
+        } else {
+            val userMsg = when {
+                error is java.io.FileNotFoundException || msg.contains("404") || msg.contains("notFound", ignoreCase = true) ->
+                    "File not found on Google Drive. It may have been deleted or moved remotely."
+                msg.contains("403") || msg.contains("Access denied", ignoreCase = true) ->
+                    "Access denied by Google Drive. Check permissions for this account."
+                else -> "Could not open file: ${msg.take(120)}"
+            }
+            _uiState.update {
+                it.copy(
+                    statusMessage = userMsg
+                )
+            }
+        }
+    }
+
     fun dismissAuthSetupDialog() {
         _uiState.update { it.copy(showAuthSetupDialog = false) }
     }
@@ -249,8 +299,12 @@ class DrivePoolViewModel(
     fun onConsentCompleted(granted: Boolean) {
         _uiState.update { it.copy(authConsentIntent = null) }
         if (granted) {
-            _uiState.update { it.copy(statusMessage = "Google Drive access granted! Uploading file...") }
-            pendingUploadFile?.let { file ->
+            _uiState.update { it.copy(statusMessage = "Google Drive access granted!") }
+            pendingPreviewFile?.let { file ->
+                val toPreview = file
+                pendingPreviewFile = null
+                previewPoolFile(toPreview)
+            } ?: pendingUploadFile?.let { file ->
                 val toUpload = file
                 pendingUploadFile = null
                 uploadLocalPhoneFile(toUpload)
@@ -260,6 +314,7 @@ class DrivePoolViewModel(
             }
         } else {
             _uiState.update { it.copy(statusMessage = "Google Drive permission was denied.") }
+            pendingPreviewFile = null
             pendingUploadFile = null
             pendingVirtualUpload = null
         }
@@ -301,10 +356,20 @@ class DrivePoolViewModel(
     }
 
     fun previewPoolFile(file: PoolFile) {
+        pendingPreviewFile = file
         viewModelScope.launch {
             _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Loading \"${file.name}\"...") }
             val result = repository.prepareFileForViewing(file)
             result.onSuccess { localFile ->
+                pendingPreviewFile = null
+                val isVirtual = file.remoteDriveFileId.startsWith("virtual_", ignoreCase = true) ||
+                        file.remoteDriveFileId.startsWith("mock_", ignoreCase = true) ||
+                        file.remoteDriveFileId.isBlank()
+                val sourceDesc = if (isVirtual) {
+                    "Virtual Cluster Replica (${file.physicalNodeEmail})"
+                } else {
+                    "Google Drive (${file.physicalNodeEmail})"
+                }
                 _uiState.update {
                     it.copy(
                         isViewerLoading = false,
@@ -314,17 +379,13 @@ class DrivePoolViewModel(
                             mimeType = file.mimeType,
                             sizeBytes = file.sizeBytes,
                             file = localFile,
-                            sourceDescription = "Google Drive (${file.physicalNodeEmail})"
+                            sourceDescription = sourceDesc
                         )
                     )
                 }
             }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isViewerLoading = false,
-                        statusMessage = "Could not open file: ${err.message}"
-                    )
-                }
+                _uiState.update { it.copy(isViewerLoading = false) }
+                handlePreviewFailure(err)
             }
         }
     }
