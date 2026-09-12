@@ -1,7 +1,10 @@
 package com.example.drivepool.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,17 +19,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
@@ -47,7 +56,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,9 +71,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.drivepool.data.model.FileCategory
 import com.example.drivepool.data.model.PoolFile
+import com.example.drivepool.ui.components.BulkDeleteConfirmationDialog
 import com.example.drivepool.ui.components.FileIcon
+import com.example.drivepool.ui.components.FileSelectionHeader
+import com.example.drivepool.ui.components.FileThumbnail
+import com.example.drivepool.ui.components.FileViewModeHeader
+import com.example.drivepool.ui.components.UnifiedFileGridCard
+import com.example.drivepool.ui.components.UnifiedFileRowCard
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
+import com.example.drivepool.ui.viewmodel.FileViewLayout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +92,7 @@ fun UnifiedFilesScreen(
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.statusMessage) {
         state.statusMessage?.let {
@@ -289,18 +309,154 @@ fun UnifiedFilesScreen(
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(state.files, key = { it.id }) { file ->
-                        UnifiedFileItem(
-                            file = file,
-                            onClick = { viewModel.onFileSelected(file) }
-                        )
+                val isSelectionMode = state.selectedFileIds.isNotEmpty()
+
+                if (isSelectionMode) {
+                    FileSelectionHeader(
+                        selectedCount = state.selectedFileIds.size,
+                        totalCount = state.files.size,
+                        onClearSelection = { viewModel.clearFileSelection() },
+                        onSelectAll = {
+                            if (state.selectedFileIds.size == state.files.size) {
+                                viewModel.clearFileSelection()
+                            } else {
+                                viewModel.selectAllFiles(state.files.map { it.id })
+                            }
+                        },
+                        onDeleteClick = { showBulkDeleteDialog = true }
+                    )
+                } else {
+                    FileViewModeHeader(
+                        title = if (state.searchQuery.isNotEmpty()) "Search Results" else "Pooled Files",
+                        count = state.files.size,
+                        currentLayout = state.fileViewLayout,
+                        onLayoutChanged = { viewModel.setFileViewLayout(it) }
+                    )
+                }
+
+                when (state.fileViewLayout) {
+                    FileViewLayout.VERTICAL_LIST -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.files, key = { it.id }) { file ->
+                                val isSelected = state.selectedFileIds.contains(file.id)
+                                UnifiedFileItem(
+                                    file = file,
+                                    isSelected = isSelected,
+                                    isSelectionMode = isSelectionMode,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.toggleFileSelection(file.id)
+                                        } else {
+                                            viewModel.onFileSelected(file)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        viewModel.toggleFileSelection(file.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    FileViewLayout.HORIZONTAL_GRID -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(state.files, key = { it.id }) { file ->
+                                val isSelected = state.selectedFileIds.contains(file.id)
+                                UnifiedFileGridCard(
+                                    file = file,
+                                    isSelected = isSelected,
+                                    isSelectionMode = isSelectionMode,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.toggleFileSelection(file.id)
+                                        } else {
+                                            viewModel.onFileSelected(file)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        viewModel.toggleFileSelection(file.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    FileViewLayout.HORIZONTAL_ROW -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            Text(
+                                text = "Horizontal Scroll Gallery",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(state.files, key = { "row_${it.id}" }) { file ->
+                                    val isSelected = state.selectedFileIds.contains(file.id)
+                                    UnifiedFileRowCard(
+                                        file = file,
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleFileSelection(file.id)
+                                            } else {
+                                                viewModel.onFileSelected(file)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            viewModel.toggleFileSelection(file.id)
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                items(state.files, key = { "sub_${it.id}" }) { file ->
+                                    val isSelected = state.selectedFileIds.contains(file.id)
+                                    UnifiedFileItem(
+                                        file = file,
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleFileSelection(file.id)
+                                            } else {
+                                                viewModel.onFileSelected(file)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            viewModel.toggleFileSelection(file.id)
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -315,7 +471,7 @@ fun UnifiedFilesScreen(
             onDismiss = { viewModel.onFileSelected(null) },
             onDelete = { viewModel.deleteFile(it) },
             onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) },
-            onView = { viewModel.previewPoolFile(it) },
+            onView = { viewModel.previewPoolFile(it, state.files) },
             onShare = { viewModel.sharePoolFile(context, it) }
         )
     }
@@ -330,23 +486,46 @@ fun UnifiedFilesScreen(
             }
         )
     }
+
+    // Bulk Delete Confirmation Dialog
+    if (showBulkDeleteDialog) {
+        BulkDeleteConfirmationDialog(
+            count = state.selectedFileIds.size,
+            isPhoneStorage = false,
+            onDismiss = { showBulkDeleteDialog = false },
+            onConfirm = {
+                showBulkDeleteDialog = false
+                viewModel.deleteSelectedFiles()
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UnifiedFileItem(
     file: PoolFile,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 3.dp else 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -354,7 +533,19 @@ private fun UnifiedFileItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FileIcon(category = file.category, size = 44.dp)
+            if (isSelectionMode) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .padding(end = 4.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            FileThumbnail(file = file, size = 46.dp)
 
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -362,7 +553,7 @@ private fun UnifiedFileItem(
                 Text(
                     text = file.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -378,7 +569,7 @@ private fun UnifiedFileItem(
                 }
             }
 
-            if (file.isStarred) {
+            if (!isSelectionMode && file.isStarred) {
                 Icon(
                     imageVector = Icons.Default.Star,
                     contentDescription = "Starred",
@@ -389,12 +580,14 @@ private fun UnifiedFileItem(
                 )
             }
 
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = "View Details",
-                tint = MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier.size(20.dp)
-            )
+            if (!isSelectionMode) {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "View Details",
+                    tint = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

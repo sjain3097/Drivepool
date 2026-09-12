@@ -6,8 +6,11 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,10 +25,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -37,7 +45,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -64,7 +75,10 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,10 +91,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.drivepool.data.model.FileCategory
 import com.example.drivepool.data.model.LocalPhoneFile
+import com.example.drivepool.ui.components.BulkDeleteConfirmationDialog
 import com.example.drivepool.ui.components.FileIcon
+import com.example.drivepool.ui.components.FileSelectionHeader
+import com.example.drivepool.ui.components.FileThumbnail
+import com.example.drivepool.ui.components.FileViewModeHeader
+import com.example.drivepool.ui.components.PhoneFileGridCard
+import com.example.drivepool.ui.components.PhoneFileRowCard
 import com.example.drivepool.ui.components.StorageProgressBar
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
+import com.example.drivepool.ui.viewmodel.FileViewLayout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +111,9 @@ fun LocalPhoneFilesScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    var isStorageExpanded by remember { mutableStateOf(false) }
+    val isSelectionMode = state.selectedPhoneFileIds.isNotEmpty()
 
     // Android System Document/Media Picker
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -126,70 +150,110 @@ fun LocalPhoneFilesScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Phone Storage Info Card
+        // Phone Storage Info Card (Default Collapsed into a Blue Bar)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(16.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { isStorageExpanded = !isStorageExpanded },
+            shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            )
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Collapsed Bar Header (Always visible, sleek blue bar)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(28.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.PhoneAndroid,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Phone Internal Storage",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val info = state.deviceStorageInfo
-                        Text(
-                            text = "${info.formattedFree} free of ${info.formattedTotal} • ${state.phoneFiles.size} Files",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = "Phone Storage",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+
+                    val info = state.deviceStorageInfo
+                    Text(
+                        text = " • ${info.formattedFree} free (${(100f - info.usagePercent).toInt()}%)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
                     FilledTonalButton(
                         onClick = { filePickerLauncher.launch("*/*") },
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                        modifier = Modifier.height(28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.FileOpen,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(13.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Pick File", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Pick", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Icon(
+                        imageVector = if (isStorageExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isStorageExpanded) "Collapse Storage Info" else "Expand Storage Info",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Expandable Details (Smooth transition)
+                AnimatedVisibility(visible = isStorageExpanded) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 14.dp, bottom = 12.dp, top = 2.dp)
+                    ) {
+                        val info = state.deviceStorageInfo
+                        Text(
+                            text = "${info.formattedFree} free of ${info.formattedTotal} • ${state.phoneFiles.size} Files",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
 
-                val info = state.deviceStorageInfo
-                StorageProgressBar(
-                    usedPercent = info.usagePercent,
-                    formattedUsed = info.formattedUsed,
-                    formattedTotal = info.formattedTotal,
-                    barHeight = 8.dp
-                )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        StorageProgressBar(
+                            usedPercent = info.usagePercent,
+                            formattedUsed = info.formattedUsed,
+                            formattedTotal = info.formattedTotal,
+                            barHeight = 8.dp
+                        )
+                    }
+                }
             }
         }
 
@@ -505,6 +569,22 @@ fun LocalPhoneFilesScreen(
                     }
                 }
             } else {
+                if (isSelectionMode) {
+                    FileSelectionHeader(
+                        selectedCount = state.selectedPhoneFileIds.size,
+                        totalCount = currentResult.files.size,
+                        onClearSelection = { viewModel.clearPhoneFileSelection() },
+                        onSelectAll = {
+                            if (state.selectedPhoneFileIds.size == currentResult.files.size) {
+                                viewModel.clearPhoneFileSelection()
+                            } else {
+                                viewModel.selectAllPhoneFiles(currentResult.files.map { it.id })
+                            }
+                        },
+                        onDeleteClick = { showBulkDeleteDialog = true }
+                    )
+                }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -515,14 +595,31 @@ fun LocalPhoneFilesScreen(
                     items(currentResult.folders, key = { "folder_${it.path}" }) { folder ->
                         FolderItemRow(
                             folder = folder,
-                            onClick = { viewModel.loadFolder(folder.path) }
+                            onClick = {
+                                if (isSelectionMode) {
+                                    viewModel.clearPhoneFileSelection()
+                                }
+                                viewModel.loadFolder(folder.path)
+                            }
                         )
                     }
                     items(currentResult.files, key = { "file_${it.id}" }) { file ->
+                        val isSelected = state.selectedPhoneFileIds.contains(file.id)
                         PhoneFileItem(
                             file = file,
-                            onClick = { viewModel.onPhoneFileSelected(file) },
-                            onViewClick = { viewModel.previewPhoneFile(file) },
+                            isSelected = isSelected,
+                            isSelectionMode = isSelectionMode,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    viewModel.togglePhoneFileSelection(file.id)
+                                } else {
+                                    viewModel.onPhoneFileSelected(file)
+                                }
+                            },
+                            onLongClick = {
+                                viewModel.togglePhoneFileSelection(file.id)
+                            },
+                            onViewClick = { viewModel.previewPhoneFile(file, currentResult.files) },
                             onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
                         )
                     }
@@ -580,20 +677,156 @@ fun LocalPhoneFilesScreen(
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(state.phoneFiles, key = { it.id }) { file ->
-                        PhoneFileItem(
-                            file = file,
-                            onClick = { viewModel.onPhoneFileSelected(file) },
-                            onViewClick = { viewModel.previewPhoneFile(file) },
-                            onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
-                        )
+                if (isSelectionMode) {
+                    FileSelectionHeader(
+                        selectedCount = state.selectedPhoneFileIds.size,
+                        totalCount = state.phoneFiles.size,
+                        onClearSelection = { viewModel.clearPhoneFileSelection() },
+                        onSelectAll = {
+                            if (state.selectedPhoneFileIds.size == state.phoneFiles.size) {
+                                viewModel.clearPhoneFileSelection()
+                            } else {
+                                viewModel.selectAllPhoneFiles(state.phoneFiles.map { it.id })
+                            }
+                        },
+                        onDeleteClick = { showBulkDeleteDialog = true }
+                    )
+                } else {
+                    FileViewModeHeader(
+                        title = if (state.phoneSearchQuery.isNotEmpty()) "Search Results" else "Phone Files",
+                        count = state.phoneFiles.size,
+                        currentLayout = state.fileViewLayout,
+                        onLayoutChanged = { viewModel.setFileViewLayout(it) }
+                    )
+                }
+
+                when (state.fileViewLayout) {
+                    FileViewLayout.VERTICAL_LIST -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.phoneFiles, key = { it.id }) { file ->
+                                val isSelected = state.selectedPhoneFileIds.contains(file.id)
+                                PhoneFileItem(
+                                    file = file,
+                                    isSelected = isSelected,
+                                    isSelectionMode = isSelectionMode,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.togglePhoneFileSelection(file.id)
+                                        } else {
+                                            viewModel.onPhoneFileSelected(file)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        viewModel.togglePhoneFileSelection(file.id)
+                                    },
+                                    onViewClick = { viewModel.previewPhoneFile(file, state.phoneFiles) },
+                                    onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                                )
+                            }
+                        }
+                    }
+                    FileViewLayout.HORIZONTAL_GRID -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(state.phoneFiles, key = { it.id }) { file ->
+                                val isSelected = state.selectedPhoneFileIds.contains(file.id)
+                                PhoneFileGridCard(
+                                    file = file,
+                                    isSelected = isSelected,
+                                    isSelectionMode = isSelectionMode,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.togglePhoneFileSelection(file.id)
+                                        } else {
+                                            viewModel.previewPhoneFile(file, state.phoneFiles)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        viewModel.togglePhoneFileSelection(file.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    FileViewLayout.HORIZONTAL_ROW -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            Text(
+                                text = "Horizontal Scroll Gallery",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(state.phoneFiles, key = { "row_${it.id}" }) { file ->
+                                    val isSelected = state.selectedPhoneFileIds.contains(file.id)
+                                    PhoneFileRowCard(
+                                        file = file,
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.togglePhoneFileSelection(file.id)
+                                            } else {
+                                                viewModel.previewPhoneFile(file, state.phoneFiles)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            viewModel.togglePhoneFileSelection(file.id)
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                items(state.phoneFiles, key = { "sub_${it.id}" }) { file ->
+                                    val isSelected = state.selectedPhoneFileIds.contains(file.id)
+                                    PhoneFileItem(
+                                        file = file,
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.togglePhoneFileSelection(file.id)
+                                            } else {
+                                                viewModel.onPhoneFileSelected(file)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            viewModel.togglePhoneFileSelection(file.id)
+                                        },
+                                        onViewClick = { viewModel.previewPhoneFile(file, state.phoneFiles) },
+                                        onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -602,10 +835,14 @@ fun LocalPhoneFilesScreen(
 
     // Phone File Details Bottom Sheet
     state.selectedPhoneFile?.let { file ->
+        val activeContextList = state.currentFolderResult?.files ?: state.phoneFiles
         PhoneFileDetailsSheet(
             file = file,
             onDismiss = { viewModel.onPhoneFileSelected(null) },
-            onView = { viewModel.previewPhoneFile(file) },
+            onView = {
+                viewModel.previewPhoneFile(file, activeContextList)
+                viewModel.onPhoneFileSelected(null)
+            },
             onShare = {
                 viewModel.sharePhoneFile(context, file)
                 viewModel.onPhoneFileSelected(null)
@@ -617,6 +854,19 @@ fun LocalPhoneFilesScreen(
             onDelete = {
                 viewModel.deletePhoneFile(file)
                 viewModel.onPhoneFileSelected(null)
+            }
+        )
+    }
+
+    // Bulk Delete Confirmation Dialog
+    if (showBulkDeleteDialog) {
+        BulkDeleteConfirmationDialog(
+            count = state.selectedPhoneFileIds.size,
+            isPhoneStorage = true,
+            onDismiss = { showBulkDeleteDialog = false },
+            onConfirm = {
+                showBulkDeleteDialog = false
+                viewModel.deleteSelectedPhoneFiles()
             }
         )
     }
@@ -685,10 +935,14 @@ private fun FolderItemRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhoneFileItem(
     file: LocalPhoneFile,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onViewClick: () -> Unit,
     onUploadClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -696,10 +950,18 @@ private fun PhoneFileItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 3.dp else 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -707,7 +969,19 @@ private fun PhoneFileItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FileIcon(category = file.category, size = 44.dp)
+            if (isSelectionMode) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .padding(end = 4.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+
+            FileThumbnail(file = file, size = 48.dp)
 
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -715,7 +989,7 @@ private fun PhoneFileItem(
                 Text(
                     text = file.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -739,55 +1013,57 @@ private fun PhoneFileItem(
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            if (!isSelectionMode) {
+                Spacer(modifier = Modifier.width(6.dp))
 
-            // Direct View / Open Button
-            FilledTonalButton(
-                onClick = onViewClick,
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FileOpen,
-                    contentDescription = "View",
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("View", fontSize = 11.sp)
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Upload Status / Button
-            if (file.isUploadedToPool) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Uploaded",
-                        tint = Color(0xFF137333),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Backed Up",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF137333)
-                    )
-                }
-            } else {
-                Button(
-                    onClick = onUploadClick,
+                // Direct View / Open Button
+                FilledTonalButton(
+                    onClick = onViewClick,
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CloudUpload,
-                        contentDescription = "Upload to DrivePool",
+                        imageVector = Icons.Default.FileOpen,
+                        contentDescription = "View",
                         modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Upload", fontSize = 11.sp)
+                    Text("View", fontSize = 11.sp)
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Upload Status / Button
+                if (file.isUploadedToPool) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Uploaded",
+                            tint = Color(0xFF137333),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Backed Up",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF137333)
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onUploadClick,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = "Upload to DrivePool",
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Upload", fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -818,7 +1094,7 @@ private fun PhoneFileDetailsSheet(
                 .padding(bottom = 32.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                FileIcon(category = file.category, size = 48.dp)
+                FileThumbnail(file = file, size = 56.dp)
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

@@ -162,7 +162,13 @@ fun DrivePoolApp(
                 )
             }
 
-            uiState.viewingTarget?.let { target ->
+            uiState.viewerSession?.let { session ->
+                FileViewerDialog(
+                    session = session,
+                    onDismiss = { viewModel.dismissFileViewer() },
+                    onPrepareFile = { item -> viewModel.prepareFileForViewer(item) }
+                )
+            } ?: uiState.viewingTarget?.let { target ->
                 FileViewerDialog(
                     target = target,
                     onDismiss = { viewModel.dismissFileViewer() }

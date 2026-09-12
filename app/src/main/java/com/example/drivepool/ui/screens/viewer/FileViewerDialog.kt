@@ -8,17 +8,30 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,12 +109,47 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+data class ViewerFileItem(
+    val id: String,
+    val name: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val sourceDescription: String,
+    val file: File? = null,
+    val phoneFile: com.example.drivepool.data.model.LocalPhoneFile? = null,
+    val poolFile: com.example.drivepool.data.model.PoolFile? = null
+)
+
+data class FileViewerSession(
+    val initialIndex: Int = 0,
+    val items: List<ViewerFileItem>
+)
+
+object BitmapMemoryCache {
+    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+    private val cacheSize = (maxMemory / 8).coerceAtLeast(16 * 1024)
+    private val cache = object : android.util.LruCache<String, Bitmap>(cacheSize) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int {
+            return bitmap.byteCount / 1024
+        }
+    }
+
+    fun get(key: String): Bitmap? = cache.get(key)
+    fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
+    }
+}
+
 data class ViewingFileTarget(
     val name: String,
     val mimeType: String,
     val sizeBytes: Long,
     val file: File,
-    val sourceDescription: String
+    val sourceDescription: String,
+    val currentIndex: Int = 0,
+    val totalCount: Int = 1,
+    val hasPrevious: Boolean = false,
+    val hasNext: Boolean = false
 )
 
 fun launchExternalViewer(context: Context, file: File, mimeType: String) {
@@ -147,27 +195,55 @@ fun shareFile(context: Context, file: File, mimeType: String) {
 @Composable
 fun FileViewerDialog(
     target: ViewingFileTarget,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onNavigateNext: (() -> Unit)? = null,
+    onNavigatePrevious: (() -> Unit)? = null
 ) {
+    val session = remember(target) {
+        FileViewerSession(
+            initialIndex = target.currentIndex.coerceAtLeast(0),
+            items = listOf(
+                ViewerFileItem(
+                    id = target.name,
+                    name = target.name,
+                    mimeType = target.mimeType,
+                    sizeBytes = target.sizeBytes,
+                    sourceDescription = target.sourceDescription,
+                    file = target.file
+                )
+            )
+        )
+    }
+    FileViewerDialog(session = session, onDismiss = onDismiss)
+}
+
+@Composable
+fun FileViewerDialog(
+    session: FileViewerSession,
+    onDismiss: () -> Unit,
+    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null
+) {
+    if (session.items.isEmpty()) {
+        onDismiss()
+        return
+    }
+
     val context = LocalContext.current
     var showControls by remember { mutableStateOf(true) }
 
-    val isImage = target.mimeType.startsWith("image/") ||
-            target.name.endsWith(".jpg", ignoreCase = true) ||
-            target.name.endsWith(".jpeg", ignoreCase = true) ||
-            target.name.endsWith(".png", ignoreCase = true) ||
-            target.name.endsWith(".webp", ignoreCase = true) ||
-            target.name.endsWith(".gif", ignoreCase = true)
+    val initialPage = session.initialIndex.coerceIn(0, session.items.size - 1)
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { session.items.size }
+    )
 
-    val isPdf = target.mimeType == "application/pdf" || target.name.endsWith(".pdf", ignoreCase = true)
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
-    val isText = target.mimeType.startsWith("text/") ||
-            target.name.endsWith(".txt", ignoreCase = true) ||
-            target.name.endsWith(".json", ignoreCase = true) ||
-            target.name.endsWith(".xml", ignoreCase = true) ||
-            target.name.endsWith(".csv", ignoreCase = true) ||
-            target.name.endsWith(".log", ignoreCase = true) ||
-            target.name.endsWith(".md", ignoreCase = true)
+    LaunchedEffect(pagerState.currentPage) {
+        isCurrentPageZoomed = false
+    }
+
+    val currentItem = session.items[pagerState.currentPage.coerceIn(0, session.items.size - 1)]
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -183,37 +259,30 @@ fun FileViewerDialog(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // 1. Full Screen Media Content
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                when {
-                    isImage -> ImageViewer(
-                        file = target.file,
-                        showControls = showControls,
-                        onToggleControls = { showControls = !showControls },
-                        onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
-                    )
-                    isPdf -> PdfViewer(
-                        file = target.file,
-                        showControls = showControls,
-                        onToggleControls = { showControls = !showControls },
-                        onOpenExternal = { launchExternalViewer(context, target.file, "application/pdf") }
-                    )
-                    isText -> TextViewer(
-                        file = target.file,
-                        showControls = showControls,
-                        onToggleControls = { showControls = !showControls }
-                    )
-                    else -> GenericDocumentViewer(
-                        target = target,
-                        onOpenExternal = { launchExternalViewer(context, target.file, target.mimeType) }
-                    )
-                }
+            // 1. High Performance 120Hz Native Compose HorizontalPager
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
+                userScrollEnabled = !isCurrentPageZoomed,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val item = session.items[page]
+                val isCurrent = page == pagerState.currentPage
+
+                FileViewerPage(
+                    item = item,
+                    showControls = showControls,
+                    onToggleControls = { showControls = !showControls },
+                    onZoomChanged = { zoomed ->
+                        if (isCurrent) {
+                            isCurrentPageZoomed = zoomed
+                        }
+                    },
+                    onPrepareFile = onPrepareFile
+                )
             }
 
-            // 2. Animated Floating Top Header Bar
+            // Animated Floating Top Header Bar
             AnimatedVisibility(
                 visible = showControls,
                 enter = fadeIn() + slideInVertically { -it },
@@ -249,15 +318,18 @@ fun FileViewerDialog(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = target.name,
+                                text = currentItem.name,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val countText = if (session.items.size > 1) {
+                                "${pagerState.currentPage + 1} of ${session.items.size} • "
+                            } else ""
                             Text(
-                                text = "${DriveNode.formatBytes(target.sizeBytes)} • ${target.sourceDescription}",
+                                text = "$countText${DriveNode.formatBytes(currentItem.sizeBytes)} • ${currentItem.sourceDescription}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF94A3B8),
                                 maxLines = 1,
@@ -275,7 +347,16 @@ fun FileViewerDialog(
                         }
 
                         // Share via WhatsApp, Gmail, system share sheet
-                        IconButton(onClick = { shareFile(context, target.file, target.mimeType) }) {
+                        IconButton(
+                            onClick = {
+                                val file = currentItem.file ?: (currentItem.phoneFile?.let { File(it.path).takeIf { f -> f.exists() } })
+                                if (file != null && file.exists()) {
+                                    shareFile(context, file, currentItem.mimeType)
+                                } else {
+                                    Toast.makeText(context, "Preparing file to share...", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "Share via WhatsApp / other apps",
@@ -284,7 +365,16 @@ fun FileViewerDialog(
                         }
 
                         // External app button
-                        IconButton(onClick = { launchExternalViewer(context, target.file, target.mimeType) }) {
+                        IconButton(
+                            onClick = {
+                                val file = currentItem.file ?: (currentItem.phoneFile?.let { File(it.path).takeIf { f -> f.exists() } })
+                                if (file != null && file.exists()) {
+                                    launchExternalViewer(context, file, currentItem.mimeType)
+                                } else {
+                                    Toast.makeText(context, "Preparing file to open...", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.OpenInNew,
                                 contentDescription = "Open with external app",
@@ -295,7 +385,7 @@ fun FileViewerDialog(
                 }
             }
 
-            // 3. Floating Restore Controls Button when in pure Full Screen
+            // 5. Floating Restore Controls Button when in pure Full Screen
             if (!showControls) {
                 Surface(
                     modifier = Modifier
@@ -319,6 +409,103 @@ fun FileViewerDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun FileViewerPage(
+    item: ViewerFileItem,
+    showControls: Boolean,
+    onToggleControls: () -> Unit,
+    onZoomChanged: (Boolean) -> Unit,
+    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null
+) {
+    val context = LocalContext.current
+    var resolvedFile by remember(item.id) {
+        mutableStateOf(item.file ?: item.phoneFile?.let { File(it.path).takeIf { f -> f.exists() } })
+    }
+    var isLoading by remember(item.id) { mutableStateOf(resolvedFile == null) }
+
+    LaunchedEffect(item.id) {
+        if (resolvedFile == null && onPrepareFile != null) {
+            val f = onPrepareFile(item)
+            if (f != null && f.exists()) {
+                resolvedFile = f
+            }
+            isLoading = false
+        }
+    }
+
+    val isImage = item.mimeType.startsWith("image/") ||
+            item.name.endsWith(".jpg", ignoreCase = true) ||
+            item.name.endsWith(".jpeg", ignoreCase = true) ||
+            item.name.endsWith(".png", ignoreCase = true) ||
+            item.name.endsWith(".webp", ignoreCase = true) ||
+            item.name.endsWith(".gif", ignoreCase = true)
+
+    val isPdf = item.mimeType == "application/pdf" || item.name.endsWith(".pdf", ignoreCase = true)
+
+    val isText = item.mimeType.startsWith("text/") ||
+            item.name.endsWith(".txt", ignoreCase = true) ||
+            item.name.endsWith(".json", ignoreCase = true) ||
+            item.name.endsWith(".xml", ignoreCase = true) ||
+            item.name.endsWith(".csv", ignoreCase = true) ||
+            item.name.endsWith(".log", ignoreCase = true) ||
+            item.name.endsWith(".md", ignoreCase = true)
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoading) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.White)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Loading \"${item.name}\"...", color = Color.White)
+            }
+        } else if (resolvedFile != null) {
+            when {
+                isImage -> ImageViewer(
+                    file = resolvedFile!!,
+                    showControls = showControls,
+                    onToggleControls = onToggleControls,
+                    onZoomChanged = onZoomChanged,
+                    onOpenExternal = { launchExternalViewer(context, resolvedFile!!, item.mimeType) }
+                )
+                isPdf -> PdfViewer(
+                    file = resolvedFile!!,
+                    showControls = showControls,
+                    onToggleControls = onToggleControls,
+                    onOpenExternal = { launchExternalViewer(context, resolvedFile!!, "application/pdf") }
+                )
+                isText -> TextViewer(
+                    file = resolvedFile!!,
+                    showControls = showControls,
+                    onToggleControls = onToggleControls
+                )
+                else -> GenericDocumentViewer(
+                    target = ViewingFileTarget(
+                        name = item.name,
+                        mimeType = item.mimeType,
+                        sizeBytes = item.sizeBytes,
+                        file = resolvedFile!!,
+                        sourceDescription = item.sourceDescription
+                    ),
+                    onOpenExternal = { launchExternalViewer(context, resolvedFile!!, item.mimeType) }
+                )
+            }
+        } else {
+            GenericDocumentViewer(
+                target = ViewingFileTarget(
+                    name = item.name,
+                    mimeType = item.mimeType,
+                    sizeBytes = item.sizeBytes,
+                    file = File(""),
+                    sourceDescription = item.sourceDescription
+                ),
+                onOpenExternal = {}
+            )
         }
     }
 }
@@ -407,51 +594,58 @@ fun ImageViewer(
     file: File,
     showControls: Boolean,
     onToggleControls: () -> Unit,
-    onOpenExternal: () -> Unit
+    onOpenExternal: () -> Unit,
+    onZoomChanged: (Boolean) -> Unit = {},
+    onNavigateNext: (() -> Unit)? = null,
+    onNavigatePrevious: (() -> Unit)? = null
 ) {
-    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val cached = remember(file.absolutePath) { BitmapMemoryCache.get(file.absolutePath) }
+    var bitmap by remember(file.absolutePath) { mutableStateOf(cached) }
+    var isLoading by remember(file.absolutePath) { mutableStateOf(bitmap == null) }
+    var errorMessage by remember(file.absolutePath) { mutableStateOf<String?>(null) }
 
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var scale by remember(file.absolutePath) { mutableFloatStateOf(1f) }
+    var offset by remember(file.absolutePath) { mutableStateOf(Offset.Zero) }
 
-    LaunchedEffect(file) {
-        withContext(Dispatchers.IO) {
-            try {
-                if (!file.exists() || file.length() == 0L) {
-                    errorMessage = "Image file is empty or missing data."
+    LaunchedEffect(file.absolutePath) {
+        if (bitmap == null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    if (!file.exists() || file.length() == 0L) {
+                        errorMessage = "Image file is empty or missing data."
+                        isLoading = false
+                        return@withContext
+                    }
+
+                    val opts = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    BitmapFactory.decodeFile(file.absolutePath, opts)
+
+                    if (opts.outWidth <= 0 || opts.outHeight <= 0) {
+                        errorMessage = "Unable to decode image format."
+                        isLoading = false
+                        return@withContext
+                    }
+
+                    var sampleSize = 1
+                    while (opts.outWidth / sampleSize > 2560 || opts.outHeight / sampleSize > 2560) {
+                        sampleSize *= 2
+                    }
+                    opts.inJustDecodeBounds = false
+                    opts.inSampleSize = sampleSize
+                    val decoded = BitmapFactory.decodeFile(file.absolutePath, opts)
+                    if (decoded != null) {
+                        BitmapMemoryCache.put(file.absolutePath, decoded)
+                        bitmap = decoded
+                    } else {
+                        errorMessage = "Could not decode image."
+                    }
+                } catch (e: Exception) {
+                    errorMessage = "Failed to load image: ${e.localizedMessage}"
+                } finally {
                     isLoading = false
-                    return@withContext
                 }
-
-                val opts = BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                BitmapFactory.decodeFile(file.absolutePath, opts)
-
-                if (opts.outWidth <= 0 || opts.outHeight <= 0) {
-                    errorMessage = "Unable to decode image format."
-                    isLoading = false
-                    return@withContext
-                }
-
-                var sampleSize = 1
-                while (opts.outWidth / sampleSize > 2560 || opts.outHeight / sampleSize > 2560) {
-                    sampleSize *= 2
-                }
-                opts.inJustDecodeBounds = false
-                opts.inSampleSize = sampleSize
-                val decoded = BitmapFactory.decodeFile(file.absolutePath, opts)
-                if (decoded != null) {
-                    bitmap = decoded
-                } else {
-                    errorMessage = "Could not decode image."
-                }
-            } catch (e: Exception) {
-                errorMessage = "Failed to load image: ${e.localizedMessage}"
-            } finally {
-                isLoading = false
             }
         }
     }
@@ -460,30 +654,74 @@ fun ImageViewer(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(file.absolutePath) {
                 detectTapGestures(
                     onTap = { onToggleControls() },
                     onDoubleTap = {
-                        if (scale > 1.2f) {
+                        if (scale > 1.05f) {
                             scale = 1f
                             offset = Offset.Zero
+                            onZoomChanged(false)
                         } else {
                             scale = 2.5f
                             offset = Offset.Zero
+                            onZoomChanged(true)
                         }
                     }
                 )
             }
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(1f, 8f)
-                    val maxOffsetX = (size.width * (newScale - 1f)) / 2f
-                    val maxOffsetY = (size.height * (newScale - 1f)) / 2f
-                    offset = Offset(
-                        x = (offset.x + pan.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
-                        y = (offset.y + pan.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
-                    )
-                    scale = newScale
+            .pointerInput(file.absolutePath) {
+                awaitEachGesture {
+                    var pastTouchSlop = false
+                    val touchSlop = viewConfiguration.touchSlop
+                    var panAccumulator = Offset.Zero
+
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val canceled = event.changes.any { it.isConsumed }
+                        if (canceled) break
+
+                        val pressedCount = event.changes.count { it.pressed }
+                        val isZoomed = scale > 1.05f
+
+                        // When not zoomed and single finger: do NOT consume any gesture!
+                        // This lets HorizontalPager handle 1-finger horizontal swipes smoothly.
+                        if (!isZoomed && pressedCount < 2) {
+                            continue
+                        }
+
+                        val panChange = event.calculatePan()
+                        val zoomChange = event.calculateZoom()
+
+                        if (!pastTouchSlop) {
+                            panAccumulator += panChange
+                            val panMotion = panAccumulator.getDistance()
+                            val zoomMotion = kotlin.math.abs(1f - zoomChange)
+
+                            if (pressedCount >= 2 || zoomMotion > 0.02f || (isZoomed && panMotion > touchSlop)) {
+                                pastTouchSlop = true
+                            }
+                        }
+
+                        if (pastTouchSlop) {
+                            val newScale = (scale * zoomChange).coerceIn(1f, 8f)
+                            val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                            val maxOffsetY = (size.height * (newScale - 1f)) / 2f
+                            offset = Offset(
+                                x = (offset.x + panChange.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
+                                y = (offset.y + panChange.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
+                            )
+                            scale = newScale
+                            onZoomChanged(newScale > 1.05f)
+
+                            event.changes.forEach {
+                                if (it.positionChanged()) {
+                                    it.consume()
+                                }
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             },
         contentAlignment = Alignment.Center
@@ -527,15 +765,20 @@ fun ImageViewer(
                         onZoomIn = {
                             val nextScale = minOf(8f, scale + 0.5f)
                             scale = nextScale
+                            onZoomChanged(nextScale > 1.05f)
                         },
                         onZoomOut = {
                             val nextScale = maxOf(1f, scale - 0.5f)
                             scale = nextScale
-                            if (nextScale == 1f) offset = Offset.Zero
+                            if (nextScale == 1f) {
+                                offset = Offset.Zero
+                                onZoomChanged(false)
+                            }
                         },
                         onReset = {
                             scale = 1f
                             offset = Offset.Zero
+                            onZoomChanged(false)
                         }
                     )
                 }
@@ -647,11 +890,11 @@ fun PdfViewer(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF1E1E1E))
-                .pointerInput(Unit) {
+                .pointerInput(file.absolutePath) {
                     detectTapGestures(
                         onTap = { onToggleControls() },
                         onDoubleTap = {
-                            if (scale > 1.2f) {
+                            if (scale > 1.05f) {
                                 scale = 1f
                                 offset = Offset.Zero
                             } else {
@@ -661,16 +904,55 @@ fun PdfViewer(
                         }
                     )
                 }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        val newScale = (scale * zoom).coerceIn(1f, 6f)
-                        val maxOffsetX = (size.width * (newScale - 1f)) / 2f
-                        val maxOffsetY = (size.height * (newScale - 1f)) / 2f
-                        offset = Offset(
-                            x = (offset.x + pan.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
-                            y = (offset.y + pan.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
-                        )
-                        scale = newScale
+                .pointerInput(file.absolutePath) {
+                    awaitEachGesture {
+                        var pastTouchSlop = false
+                        val touchSlop = viewConfiguration.touchSlop
+                        var panAccumulator = Offset.Zero
+
+                        awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val event = awaitPointerEvent()
+                            val canceled = event.changes.any { it.isConsumed }
+                            if (canceled) break
+
+                            val pressedCount = event.changes.count { it.pressed }
+                            val isZoomed = scale > 1.05f
+
+                            if (!isZoomed && pressedCount < 2) {
+                                continue
+                            }
+
+                            val panChange = event.calculatePan()
+                            val zoomChange = event.calculateZoom()
+
+                            if (!pastTouchSlop) {
+                                panAccumulator += panChange
+                                val panMotion = panAccumulator.getDistance()
+                                val zoomMotion = kotlin.math.abs(1f - zoomChange)
+
+                                if (pressedCount >= 2 || zoomMotion > 0.02f || (isZoomed && panMotion > touchSlop)) {
+                                    pastTouchSlop = true
+                                }
+                            }
+
+                            if (pastTouchSlop) {
+                                val newScale = (scale * zoomChange).coerceIn(1f, 6f)
+                                val maxOffsetX = (size.width * (newScale - 1f)) / 2f
+                                val maxOffsetY = (size.height * (newScale - 1f)) / 2f
+                                offset = Offset(
+                                    x = (offset.x + panChange.x * scale).coerceIn(-maxOffsetX, maxOffsetX),
+                                    y = (offset.y + panChange.y * scale).coerceIn(-maxOffsetY, maxOffsetY)
+                                )
+                                scale = newScale
+
+                                event.changes.forEach {
+                                    if (it.positionChanged()) {
+                                        it.consume()
+                                    }
+                                }
+                            }
+                        } while (event.changes.any { it.pressed })
                     }
                 },
             contentAlignment = Alignment.Center
@@ -956,7 +1238,9 @@ fun TextViewer(
 @Composable
 fun GenericDocumentViewer(
     target: ViewingFileTarget,
-    onOpenExternal: () -> Unit
+    onOpenExternal: () -> Unit,
+    onNavigateNext: (() -> Unit)? = null,
+    onNavigatePrevious: (() -> Unit)? = null
 ) {
     val isOffice = target.name.endsWith(".doc", ignoreCase = true) ||
             target.name.endsWith(".docx", ignoreCase = true) ||
@@ -969,6 +1253,34 @@ fun GenericDocumentViewer(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0B1120))
+            .pointerInput(onNavigateNext, onNavigatePrevious) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var totalPanX = 0f
+                    var totalPanY = 0f
+                    val touchSlop = viewConfiguration.touchSlop
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (change.pressed) {
+                            val pan = change.position - change.previousPosition
+                            totalPanX += pan.x
+                            totalPanY += pan.y
+                            if (kotlin.math.abs(totalPanX) > touchSlop) {
+                                change.consume()
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    val thresholdPx = 90f
+                    val isHorizontal = kotlin.math.abs(totalPanX) > kotlin.math.abs(totalPanY) * 1.2f
+                    if (isHorizontal && totalPanX < -thresholdPx) {
+                        onNavigateNext?.invoke()
+                    } else if (isHorizontal && totalPanX > thresholdPx) {
+                        onNavigatePrevious?.invoke()
+                    }
+                }
+            }
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

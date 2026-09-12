@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.example.drivepool.data.model.DriveNode
 import com.example.drivepool.data.model.PoolFile
 import com.example.drivepool.ui.components.FileIcon
+import com.example.drivepool.ui.components.FileThumbnail
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,12 +86,12 @@ fun FileDetailsSheet(
                 .padding(bottom = 32.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header: Icon + Title + Close
+            // Header: Thumbnail + Title + Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FileIcon(category = file.category, size = 52.dp)
+                FileThumbnail(file = file, size = 56.dp)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

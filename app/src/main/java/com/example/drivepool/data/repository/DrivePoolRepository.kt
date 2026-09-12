@@ -262,13 +262,27 @@ class DrivePoolRepository(
     /**
      * Deletes a file, updating the Master Catalog and freeing space on the physical node.
      */
-    suspend fun deleteFile(file: PoolFile): Result<Unit> = withContext(Dispatchers.Default) {
+    suspend fun deleteFile(file: PoolFile): Result<Unit> = withContext(Dispatchers.IO) {
         val currentNodes = _nodes.value
-        val updatedNodes = currentNodes.map { node ->
-            if (node.id == file.physicalNodeId) {
-                node.copy(usedBytes = maxOf(0L, node.usedBytes - file.sizeBytes))
+        val node = currentNodes.find { it.id == file.physicalNodeId }
+
+        // Attempt remote deletion if it's an authenticated Google Drive file
+        if (node != null && !file.remoteDriveFileId.startsWith("virtual_", ignoreCase = true) &&
+            !file.remoteDriveFileId.startsWith("mock_", ignoreCase = true) &&
+            file.remoteDriveFileId.isNotBlank()
+        ) {
+            try {
+                googleDriveService.deleteFile(node, file.remoteDriveFileId)
+            } catch (e: Exception) {
+                Log.w("DrivePoolRepository", "Remote delete warning for ${file.name}: ${e.message}")
+            }
+        }
+
+        val updatedNodes = currentNodes.map { n ->
+            if (n.id == file.physicalNodeId) {
+                n.copy(usedBytes = maxOf(0L, n.usedBytes - file.sizeBytes))
             } else {
-                node
+                n
             }
         }
 
@@ -284,7 +298,68 @@ class DrivePoolRepository(
         _nodes.value = updatedNodes
         _files.value = updatedFiles
 
+        try {
+            val cacheFolder = java.io.File(context.cacheDir, "cloud_view_cache")
+            java.io.File(cacheFolder, "${file.id}_${file.name}").delete()
+        } catch (_: Exception) {}
+
         Result.success(Unit)
+    }
+
+    /**
+     * Deletes multiple files in bulk, recalculating pooled node storage and updating catalog.
+     */
+    suspend fun deleteFiles(filesToDelete: List<PoolFile>): Result<Int> = withContext(Dispatchers.IO) {
+        if (filesToDelete.isEmpty()) return@withContext Result.success(0)
+        val deleteIds = filesToDelete.map { it.id }.toSet()
+        val currentNodes = _nodes.value
+
+        // Attempt remote deletion on Drive nodes for each file
+        for (file in filesToDelete) {
+            val node = currentNodes.find { it.id == file.physicalNodeId }
+            if (node != null && !file.remoteDriveFileId.startsWith("virtual_", ignoreCase = true) &&
+                !file.remoteDriveFileId.startsWith("mock_", ignoreCase = true) &&
+                file.remoteDriveFileId.isNotBlank()
+            ) {
+                try {
+                    googleDriveService.deleteFile(node, file.remoteDriveFileId)
+                } catch (e: Exception) {
+                    Log.w("DrivePoolRepository", "Remote delete warning for ${file.name}: ${e.message}")
+                }
+            }
+        }
+
+        val freedPerNode = filesToDelete.groupBy { it.physicalNodeId }
+            .mapValues { (_, list) -> list.sumOf { it.sizeBytes } }
+
+        val updatedNodes = currentNodes.map { node ->
+            val freed = freedPerNode[node.id] ?: 0L
+            if (freed > 0) {
+                node.copy(usedBytes = maxOf(0L, node.usedBytes - freed))
+            } else {
+                node
+            }
+        }
+
+        val updatedFiles = _files.value.filterNot { it.id in deleteIds }
+        val master = updatedNodes.find { it.role == NodeRole.MASTER } ?: updatedNodes.first()
+        val catalog = indexManager.buildCatalog(master, updatedNodes, updatedFiles)
+        indexManager.saveCatalog(catalog)
+
+        dbHelper.saveNodes(updatedNodes)
+        dbHelper.saveFiles(updatedFiles)
+
+        _nodes.value = updatedNodes
+        _files.value = updatedFiles
+
+        try {
+            val cacheFolder = java.io.File(context.cacheDir, "cloud_view_cache")
+            filesToDelete.forEach { f ->
+                java.io.File(cacheFolder, "${f.id}_${f.name}").delete()
+            }
+        } catch (_: Exception) {}
+
+        Result.success(filesToDelete.size)
     }
 
     /**
@@ -399,6 +474,22 @@ class DrivePoolRepository(
         result.onSuccess { decision ->
             phoneManager.markFileUploaded(file.id, decision.targetNode.email)
             _phoneFiles.value = phoneManager.getPhoneFiles()
+
+            // Cache the file locally so the cloud file has an instant visual thumbnail & offline preview
+            try {
+                val uploadedPoolFile = _files.value.firstOrNull { it.name == file.name }
+                if (uploadedPoolFile != null) {
+                    val cacheFolder = java.io.File(context.cacheDir, "cloud_view_cache").apply { mkdirs() }
+                    val targetFile = java.io.File(cacheFolder, "${uploadedPoolFile.id}_${uploadedPoolFile.name}")
+                    if (!targetFile.exists()) {
+                        phoneManager.openFileInputStream(file)?.use { input ->
+                            targetFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
         }
         return result
     }
@@ -406,12 +497,21 @@ class DrivePoolRepository(
     /**
      * Deletes a local file from phone storage (frees phone memory).
      */
-    suspend fun deleteLocalPhoneFile(file: com.example.drivepool.data.model.LocalPhoneFile): Boolean = withContext(Dispatchers.Default) {
-        val deleted = phoneManager.deleteLocalFile(file.id)
-        if (deleted) {
-            _phoneFiles.value = phoneManager.getPhoneFiles()
-        }
+    suspend fun deleteLocalPhoneFile(file: com.example.drivepool.data.model.LocalPhoneFile): Boolean = withContext(Dispatchers.IO) {
+        val deleted = phoneManager.deleteLocalFile(file)
+        _phoneFiles.value = phoneManager.getPhoneFiles()
+        _deviceStorageInfo.value = phoneManager.getDeviceStorageInfo()
         deleted
+    }
+
+    suspend fun deleteLocalPhoneFiles(
+        fileIds: Set<String>,
+        extraFiles: List<com.example.drivepool.data.model.LocalPhoneFile> = emptyList()
+    ): Int = withContext(Dispatchers.IO) {
+        val count = phoneManager.deleteLocalFiles(fileIds, extraFiles)
+        _phoneFiles.value = phoneManager.getPhoneFiles()
+        _deviceStorageInfo.value = phoneManager.getDeviceStorageInfo()
+        count
     }
 
     /**

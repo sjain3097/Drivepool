@@ -54,6 +54,7 @@ import com.example.drivepool.data.model.CategoryIndexSummary
 import com.example.drivepool.data.model.FileCategory
 import com.example.drivepool.data.model.PoolFile
 import com.example.drivepool.ui.components.FileIcon
+import com.example.drivepool.ui.components.FileThumbnail
 import com.example.drivepool.ui.components.StorageProgressBar
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
@@ -92,7 +93,7 @@ fun FileOrganizerScreen(
             onDismiss = { viewModel.onFileSelected(null) },
             onDelete = { viewModel.deleteFile(it) },
             onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) },
-            onView = { viewModel.previewPoolFile(it) },
+            onView = { viewModel.previewPoolFile(it, state.files) },
             onShare = { viewModel.sharePoolFile(context, it) }
         )
     }
@@ -224,7 +225,7 @@ private fun OrganizerMainView(
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FileIcon(category = file.category, size = 38.dp)
+                        FileThumbnail(file = file, size = 42.dp)
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
@@ -451,7 +452,7 @@ private fun CategoryFolderDetailView(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            FileIcon(category = file.category, size = 42.dp)
+                            FileThumbnail(file = file, size = 46.dp)
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(

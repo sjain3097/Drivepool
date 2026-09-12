@@ -24,8 +24,15 @@ enum class StorageViewMode {
     PHONE_STORAGE
 }
 
+enum class FileViewLayout {
+    VERTICAL_LIST,
+    HORIZONTAL_GRID,
+    HORIZONTAL_ROW
+}
+
 data class DrivePoolUiState(
     val activeStorageMode: StorageViewMode = StorageViewMode.CLOUD_POOL,
+    val fileViewLayout: FileViewLayout = FileViewLayout.VERTICAL_LIST,
     val nodes: List<DriveNode> = emptyList(),
     val files: List<PoolFile> = emptyList(),
     val phoneFiles: List<LocalPhoneFile> = emptyList(),
@@ -37,6 +44,8 @@ data class DrivePoolUiState(
     val selectedFileForDetails: PoolFile? = null,
     val selectedPhoneFile: LocalPhoneFile? = null,
     val selectedCategoryFolder: FileCategory? = null,
+    val selectedFileIds: Set<String> = emptySet(),
+    val selectedPhoneFileIds: Set<String> = emptySet(),
     val organizerInsights: com.example.drivepool.data.model.OrganizerInsights = com.example.drivepool.data.model.OrganizerInsights(),
     val isUploading: Boolean = false,
     val isTransferring: Boolean = false,
@@ -51,6 +60,7 @@ data class DrivePoolUiState(
     val authConsentIntent: Intent? = null,
     val showAuthSetupDialog: Boolean = false,
     val authErrorMessage: String? = null,
+    val viewerSession: com.example.drivepool.ui.screens.viewer.FileViewerSession? = null,
     val viewingTarget: com.example.drivepool.ui.screens.viewer.ViewingFileTarget? = null,
     val hasStoragePermission: Boolean = false,
     val currentFolderPath: String? = null,
@@ -339,6 +349,21 @@ class DrivePoolViewModel(
         }
     }
 
+    fun setFileViewLayout(layout: FileViewLayout) {
+        _uiState.update { it.copy(fileViewLayout = layout) }
+    }
+
+    fun toggleFileViewLayout() {
+        _uiState.update {
+            val next = when (it.fileViewLayout) {
+                FileViewLayout.VERTICAL_LIST -> FileViewLayout.HORIZONTAL_GRID
+                FileViewLayout.HORIZONTAL_GRID -> FileViewLayout.HORIZONTAL_ROW
+                FileViewLayout.HORIZONTAL_ROW -> FileViewLayout.VERTICAL_LIST
+            }
+            it.copy(fileViewLayout = next)
+        }
+    }
+
     fun loadFolder(path: String?) {
         viewModelScope.launch {
             val result = repository.listFolderContents(path)
@@ -356,66 +381,137 @@ class DrivePoolViewModel(
         loadFolder(parent)
     }
 
-    fun previewPoolFile(file: PoolFile) {
-        pendingPreviewFile = file
-        viewModelScope.launch {
-            _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Loading \"${file.name}\"...") }
-            val result = repository.prepareFileForViewing(file)
-            result.onSuccess { localFile ->
-                pendingPreviewFile = null
-                val isVirtual = file.remoteDriveFileId.startsWith("virtual_", ignoreCase = true) ||
-                        file.remoteDriveFileId.startsWith("mock_", ignoreCase = true) ||
-                        file.remoteDriveFileId.isBlank()
-                val sourceDesc = if (isVirtual) {
-                    "Virtual Cluster Replica (${file.physicalNodeEmail})"
-                } else {
-                    "Google Drive (${file.physicalNodeEmail})"
-                }
-                _uiState.update {
-                    it.copy(
-                        isViewerLoading = false,
-                        statusMessage = null,
-                        viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
-                            name = file.name,
-                            mimeType = file.mimeType,
-                            sizeBytes = file.sizeBytes,
-                            file = localFile,
-                            sourceDescription = sourceDesc
-                        )
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update { it.copy(isViewerLoading = false) }
-                handlePreviewFailure(err)
+    enum class ViewerContextType { PHONE, POOL }
+    private var activeViewerContextType: ViewerContextType = ViewerContextType.PHONE
+    private var activePhoneFileList: List<LocalPhoneFile> = emptyList()
+    private var activePhoneFileIndex: Int = -1
+    private var activePoolFileList: List<PoolFile> = emptyList()
+    private var activePoolFileIndex: Int = -1
+
+    fun previewPoolFile(file: PoolFile, contextList: List<PoolFile>? = null) {
+        val list = if (contextList != null && contextList.any { it.id == file.id }) {
+            contextList
+        } else if (_uiState.value.files.any { it.id == file.id }) {
+            _uiState.value.files
+        } else {
+            listOf(file)
+        }
+        val index = list.indexOfFirst { it.id == file.id }.let { if (it >= 0) it else 0 }
+
+        activeViewerContextType = ViewerContextType.POOL
+        activePoolFileList = list
+        activePoolFileIndex = index
+
+        val items = list.map { pf ->
+            val isVirtual = pf.remoteDriveFileId.startsWith("virtual_", ignoreCase = true) ||
+                    pf.remoteDriveFileId.startsWith("mock_", ignoreCase = true) ||
+                    pf.remoteDriveFileId.isBlank()
+            val sourceDesc = if (isVirtual) {
+                "Virtual Cluster Replica (${pf.physicalNodeEmail})"
+            } else {
+                "Google Drive (${pf.physicalNodeEmail})"
             }
+            com.example.drivepool.ui.screens.viewer.ViewerFileItem(
+                id = pf.id,
+                name = pf.name,
+                mimeType = pf.mimeType,
+                sizeBytes = pf.sizeBytes,
+                sourceDescription = sourceDesc,
+                poolFile = pf
+            )
+        }
+
+        val session = com.example.drivepool.ui.screens.viewer.FileViewerSession(
+            initialIndex = index,
+            items = items
+        )
+
+        _uiState.update {
+            it.copy(
+                viewerSession = session,
+                viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
+                    name = file.name,
+                    mimeType = file.mimeType,
+                    sizeBytes = file.sizeBytes,
+                    file = java.io.File(""),
+                    sourceDescription = items.getOrNull(index)?.sourceDescription ?: "Google Drive",
+                    currentIndex = index,
+                    totalCount = items.size,
+                    hasPrevious = index > 0,
+                    hasNext = index < items.size - 1
+                )
+            )
         }
     }
 
-    fun previewPhoneFile(file: LocalPhoneFile) {
-        viewModelScope.launch {
-            val result = repository.preparePhoneFileForViewing(file)
-            result.onSuccess { localFile ->
-                _uiState.update {
-                    it.copy(
-                        viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
-                            name = file.name,
-                            mimeType = file.mimeType,
-                            sizeBytes = file.sizeBytes,
-                            file = localFile,
-                            sourceDescription = "Phone Internal Storage"
-                        )
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(statusMessage = "Could not resolve file: ${err.message}")
-                }
-            }
+    fun previewPhoneFile(file: LocalPhoneFile, contextList: List<LocalPhoneFile>? = null) {
+        val list = when {
+            contextList != null && contextList.any { it.id == file.id } -> contextList
+            _uiState.value.currentFolderResult?.files?.any { it.id == file.id } == true ->
+                _uiState.value.currentFolderResult!!.files
+            _uiState.value.phoneFiles.any { it.id == file.id } -> _uiState.value.phoneFiles
+            else -> listOf(file)
         }
+        val index = list.indexOfFirst { it.id == file.id }.let { if (it >= 0) it else 0 }
+
+        activeViewerContextType = ViewerContextType.PHONE
+        activePhoneFileList = list
+        activePhoneFileIndex = index
+
+        val items = list.map { pf ->
+            val resolvedLocal = java.io.File(pf.path).takeIf { it.exists() }
+            com.example.drivepool.ui.screens.viewer.ViewerFileItem(
+                id = pf.id,
+                name = pf.name,
+                mimeType = pf.mimeType,
+                sizeBytes = pf.sizeBytes,
+                sourceDescription = "Phone Internal Storage",
+                file = resolvedLocal,
+                phoneFile = pf
+            )
+        }
+
+        val session = com.example.drivepool.ui.screens.viewer.FileViewerSession(
+            initialIndex = index,
+            items = items
+        )
+
+        val activeFile = items.getOrNull(index)?.file ?: java.io.File(file.path)
+        _uiState.update {
+            it.copy(
+                viewerSession = session,
+                viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
+                    name = file.name,
+                    mimeType = file.mimeType,
+                    sizeBytes = file.sizeBytes,
+                    file = activeFile,
+                    sourceDescription = "Phone Internal Storage",
+                    currentIndex = index,
+                    totalCount = items.size,
+                    hasPrevious = index > 0,
+                    hasNext = index < items.size - 1
+                )
+            )
+        }
+    }
+
+    suspend fun prepareFileForViewer(item: com.example.drivepool.ui.screens.viewer.ViewerFileItem): java.io.File? {
+        if (item.file != null && item.file.exists()) return item.file
+        item.phoneFile?.let { pf ->
+            return repository.preparePhoneFileForViewing(pf).getOrNull()
+        }
+        item.poolFile?.let { pf ->
+            return repository.prepareFileForViewing(pf).getOrNull()
+        }
+        return null
     }
 
     fun dismissFileViewer() {
-        _uiState.update { it.copy(viewingTarget = null) }
+        _uiState.update { it.copy(viewerSession = null, viewingTarget = null) }
+        activePhoneFileList = emptyList()
+        activePhoneFileIndex = -1
+        activePoolFileList = emptyList()
+        activePoolFileIndex = -1
     }
 
     fun sharePoolFile(context: Context, file: PoolFile) {
@@ -500,6 +596,9 @@ class DrivePoolViewModel(
         viewModelScope.launch {
             val deleted = repository.deleteLocalPhoneFile(file)
             if (deleted) {
+                if (_uiState.value.isFolderViewMode) {
+                    loadFolder(_uiState.value.currentFolderPath)
+                }
                 _uiState.update {
                     it.copy(
                         selectedPhoneFile = null,
@@ -563,6 +662,91 @@ class DrivePoolViewModel(
                 _uiState.update {
                     it.copy(statusMessage = "Deletion failed: ${error.message}")
                 }
+            }
+        }
+    }
+
+    fun toggleFileSelection(fileId: String) {
+        _uiState.update {
+            val current = it.selectedFileIds
+            val updated = if (fileId in current) current - fileId else current + fileId
+            it.copy(selectedFileIds = updated)
+        }
+    }
+
+    fun selectAllFiles(fileIds: List<String>) {
+        _uiState.update {
+            val all = fileIds.toSet()
+            val newSelection = if (it.selectedFileIds.size == all.size && all.isNotEmpty()) emptySet() else all
+            it.copy(selectedFileIds = newSelection)
+        }
+    }
+
+    fun clearFileSelection() {
+        _uiState.update { it.copy(selectedFileIds = emptySet()) }
+    }
+
+    fun deleteSelectedFiles() {
+        val selectedIds = _uiState.value.selectedFileIds
+        val toDelete = _uiState.value.files.filter { it.id in selectedIds }
+        if (toDelete.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isTransferring = true, statusMessage = "Deleting ${toDelete.size} files in bulk...") }
+            val result = repository.deleteFiles(toDelete)
+            result.onSuccess { count ->
+                _uiState.update {
+                    it.copy(
+                        isTransferring = false,
+                        selectedFileIds = emptySet(),
+                        statusMessage = "Permanently deleted $count files from DrivePool cluster."
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(isTransferring = false, statusMessage = "Bulk deletion failed: ${err.message}")
+                }
+            }
+        }
+    }
+
+    fun togglePhoneFileSelection(fileId: String) {
+        _uiState.update {
+            val current = it.selectedPhoneFileIds
+            val updated = if (fileId in current) current - fileId else current + fileId
+            it.copy(selectedPhoneFileIds = updated)
+        }
+    }
+
+    fun selectAllPhoneFiles(fileIds: List<String>) {
+        _uiState.update {
+            val all = fileIds.toSet()
+            val newSelection = if (it.selectedPhoneFileIds.size == all.size && all.isNotEmpty()) emptySet() else all
+            it.copy(selectedPhoneFileIds = newSelection)
+        }
+    }
+
+    fun clearPhoneFileSelection() {
+        _uiState.update { it.copy(selectedPhoneFileIds = emptySet()) }
+    }
+
+    fun deleteSelectedPhoneFiles() {
+        val toDeleteIds = _uiState.value.selectedPhoneFileIds
+        if (toDeleteIds.isEmpty()) return
+
+        val allKnownFiles = _uiState.value.phoneFiles + (_uiState.value.currentFolderResult?.files ?: emptyList())
+        val filesToDelete = allKnownFiles.filter { it.id in toDeleteIds }.distinctBy { it.id }
+
+        viewModelScope.launch {
+            val count = repository.deleteLocalPhoneFiles(toDeleteIds, filesToDelete)
+            if (_uiState.value.isFolderViewMode) {
+                loadFolder(_uiState.value.currentFolderPath)
+            }
+            _uiState.update {
+                it.copy(
+                    selectedPhoneFileIds = emptySet(),
+                    statusMessage = "Permanently deleted $count files from phone storage."
+                )
             }
         }
     }
