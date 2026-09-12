@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import com.example.drivepool.data.model.FileCategory
 import com.example.drivepool.data.model.LocalPhoneFile
 import com.example.drivepool.ui.components.BulkDeleteConfirmationDialog
+import com.example.drivepool.ui.components.BulkUploadConfirmationDialog
 import com.example.drivepool.ui.components.FileIcon
 import com.example.drivepool.ui.components.FileSelectionHeader
 import com.example.drivepool.ui.components.FileThumbnail
@@ -112,33 +113,36 @@ fun LocalPhoneFilesScreen(
 ) {
     val context = LocalContext.current
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    var showBulkUploadDialog by remember { mutableStateOf(false) }
     var isStorageExpanded by remember { mutableStateOf(false) }
     val isSelectionMode = state.selectedPhoneFileIds.isNotEmpty()
 
-    // Android System Document/Media Picker
+    // Android System Document/Media Picker (Multiple File Support)
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            var fileName = "Imported_File"
-            var fileSize = 1024L * 1024L // Default 1 MB
-            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri ->
+                var fileName = "Imported_File"
+                var fileSize = 1024L * 1024L // Default 1 MB
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
 
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                if (cursor.moveToFirst()) {
-                    if (nameIndex != -1) fileName = cursor.getString(nameIndex) ?: fileName
-                    if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        if (nameIndex != -1) fileName = cursor.getString(nameIndex) ?: fileName
+                        if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                    }
                 }
-            }
 
-            viewModel.addPickedPhoneFile(
-                name = fileName,
-                size = if (fileSize > 0) fileSize else 500L * 1024,
-                mimeType = mimeType,
-                path = "/storage/emulated/0/Download/$fileName"
-            )
+                viewModel.addPickedPhoneFile(
+                    name = fileName,
+                    size = if (fileSize > 0) fileSize else 500L * 1024,
+                    mimeType = mimeType,
+                    path = "/storage/emulated/0/Download/$fileName"
+                )
+            }
         }
     }
 
@@ -581,7 +585,8 @@ fun LocalPhoneFilesScreen(
                                 viewModel.selectAllPhoneFiles(currentResult.files.map { it.id })
                             }
                         },
-                        onDeleteClick = { showBulkDeleteDialog = true }
+                        onDeleteClick = { showBulkDeleteDialog = true },
+                        onUploadClick = { showBulkUploadDialog = true }
                     )
                 }
 
@@ -689,7 +694,8 @@ fun LocalPhoneFilesScreen(
                                 viewModel.selectAllPhoneFiles(state.phoneFiles.map { it.id })
                             }
                         },
-                        onDeleteClick = { showBulkDeleteDialog = true }
+                        onDeleteClick = { showBulkDeleteDialog = true },
+                        onUploadClick = { showBulkUploadDialog = true }
                     )
                 } else {
                     FileViewModeHeader(
@@ -867,6 +873,23 @@ fun LocalPhoneFilesScreen(
             onConfirm = {
                 showBulkDeleteDialog = false
                 viewModel.deleteSelectedPhoneFiles()
+            }
+        )
+    }
+
+    // Bulk Upload Confirmation Dialog
+    if (showBulkUploadDialog) {
+        val allKnownFiles = state.phoneFiles + (state.currentFolderResult?.files ?: emptyList())
+        val selectedFiles = allKnownFiles.filter { it.id in state.selectedPhoneFileIds }.distinctBy { it.id }
+        val totalSize = selectedFiles.sumOf { it.sizeBytes }
+
+        BulkUploadConfirmationDialog(
+            count = state.selectedPhoneFileIds.size,
+            totalSizeBytes = totalSize,
+            onDismiss = { showBulkUploadDialog = false },
+            onConfirm = {
+                showBulkUploadDialog = false
+                viewModel.uploadSelectedPhoneFiles()
             }
         )
     }

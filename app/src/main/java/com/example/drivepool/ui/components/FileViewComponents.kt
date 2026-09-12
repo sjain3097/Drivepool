@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.drivepool.data.model.DriveNode
 import com.example.drivepool.data.model.LocalPhoneFile
 import com.example.drivepool.data.model.PoolFile
 import com.example.drivepool.ui.viewmodel.FileViewLayout
@@ -58,6 +60,7 @@ fun FileSelectionHeader(
     onClearSelection: () -> Unit,
     onSelectAll: () -> Unit,
     onDeleteClick: () -> Unit,
+    onUploadClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -101,6 +104,17 @@ fun FileSelectionHeader(
                 )
             }
 
+            // Bulk Upload Action
+            if (onUploadClick != null) {
+                IconButton(onClick = onUploadClick) {
+                    Icon(
+                        imageVector = Icons.Default.CloudUpload,
+                        contentDescription = "Upload Selected",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             // Bulk Delete Action
             IconButton(onClick = onDeleteClick) {
                 Icon(
@@ -111,6 +125,65 @@ fun FileSelectionHeader(
             }
         }
     }
+}
+
+@Composable
+fun BulkUploadConfirmationDialog(
+    count: Int,
+    totalSizeBytes: Long = 0L,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.CloudUpload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Upload $count files?",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                val sizeText = if (totalSizeBytes > 0) " (${DriveNode.formatBytes(totalSizeBytes)})" else ""
+                Text(
+                    text = "Upload $count selected files$sizeText to your pooled Google Drive cluster?"
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "DrivePool will automatically distribute and balance these files across your connected Google Drive storage nodes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Upload $count Files", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

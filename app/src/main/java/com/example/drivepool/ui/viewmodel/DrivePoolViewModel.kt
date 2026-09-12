@@ -751,6 +751,70 @@ class DrivePoolViewModel(
         }
     }
 
+    fun uploadSelectedPhoneFiles() {
+        val toUploadIds = _uiState.value.selectedPhoneFileIds
+        if (toUploadIds.isEmpty()) return
+
+        val allKnownFiles = _uiState.value.phoneFiles + (_uiState.value.currentFolderResult?.files ?: emptyList())
+        val filesToUpload = allKnownFiles.filter { it.id in toUploadIds }.distinctBy { it.id }
+        if (filesToUpload.isEmpty()) return
+
+        // Clear selection
+        _uiState.update { it.copy(selectedPhoneFileIds = emptySet()) }
+
+        viewModelScope.launch {
+            val total = filesToUpload.size
+            var successCount = 0
+            var failureCount = 0
+
+            _uiState.update {
+                it.copy(
+                    isUploading = true,
+                    statusMessage = "Starting bulk upload (0 of $total)..."
+                )
+            }
+
+            for ((index, file) in filesToUpload.withIndex()) {
+                _uiState.update {
+                    it.copy(
+                        isUploading = true,
+                        statusMessage = "Uploading ${index + 1} of $total: \"${file.name}\"..."
+                    )
+                }
+
+                val result = repository.uploadLocalFileToPool(file)
+                result.onSuccess {
+                    successCount++
+                }.onFailure { error ->
+                    failureCount++
+                    val isAuth = error is DriveConsentRequiredException ||
+                            error.cause is DriveConsentRequiredException ||
+                            error is com.google.android.gms.auth.UserRecoverableAuthException ||
+                            error.cause is com.google.android.gms.auth.UserRecoverableAuthException ||
+                            error is DriveUnregisteredConsoleException ||
+                            error.cause is DriveUnregisteredConsoleException ||
+                            (error.message?.contains("UnregisteredOnApiConsole", ignoreCase = true) == true)
+
+                    if (isAuth) {
+                        handleUploadFailure(error)
+                        return@launch
+                    }
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isUploading = false,
+                    statusMessage = if (failureCount == 0) {
+                        "Successfully uploaded all $successCount files to DrivePool cluster!"
+                    } else {
+                        "Bulk upload completed: $successCount uploaded, $failureCount failed."
+                    }
+                )
+            }
+        }
+    }
+
     fun triggerMasterFailover() {
         viewModelScope.launch {
             _uiState.update { it.copy(statusMessage = "Conducting dynamic master election...") }
