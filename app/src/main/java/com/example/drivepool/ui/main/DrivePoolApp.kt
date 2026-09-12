@@ -32,11 +32,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.drivepool.ui.screens.ClusterDashboardScreen
 import com.example.drivepool.ui.screens.FileOrganizerScreen
 import com.example.drivepool.ui.screens.LocalPhoneFilesScreen
 import com.example.drivepool.ui.screens.NodesScreen
 import com.example.drivepool.ui.screens.UnifiedFilesScreen
+import com.example.drivepool.ui.screens.viewer.FileViewerDialog
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
 
 enum class NavigationTab(
@@ -72,6 +90,19 @@ fun DrivePoolApp(
             } catch (e: Exception) {
                 // Handle launcher failure
             }
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.checkStoragePermission()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -129,6 +160,37 @@ fun DrivePoolApp(
                     errorMessage = uiState.authErrorMessage,
                     onDismiss = { viewModel.dismissAuthSetupDialog() }
                 )
+            }
+
+            uiState.viewingTarget?.let { target ->
+                FileViewerDialog(
+                    target = target,
+                    onDismiss = { viewModel.dismissFileViewer() }
+                )
+            }
+
+            if (uiState.isViewerLoading) {
+                Dialog(
+                    onDismissRequest = {},
+                    properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(24.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = uiState.statusMessage ?: "Loading file...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
             }
         }
     }

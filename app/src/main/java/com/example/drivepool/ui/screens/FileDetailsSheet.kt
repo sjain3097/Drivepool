@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -62,6 +63,7 @@ fun FileDetailsSheet(
     onDismiss: () -> Unit,
     onDelete: (PoolFile) -> Unit,
     onRebalance: (file: PoolFile, targetNodeId: String) -> Unit,
+    onView: (PoolFile) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -215,7 +217,27 @@ fun FileDetailsSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Action Buttons
+            // Primary Action: Open / View File
+            Button(
+                onClick = {
+                    onDismiss()
+                    onView(file)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Open / View File", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Secondary Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

@@ -14,6 +14,7 @@ interface GoogleDriveService {
         inputStream: InputStream?
     ): PoolFile
     suspend fun deleteFile(node: DriveNode, remoteFileId: String): Boolean
+    suspend fun downloadFile(node: DriveNode, remoteFileId: String, targetFile: java.io.File): Boolean
     suspend fun uploadMasterIndex(masterNode: DriveNode, indexJson: String): Boolean
     suspend fun downloadMasterIndex(masterNode: DriveNode): String?
 }

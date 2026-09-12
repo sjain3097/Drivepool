@@ -312,7 +312,8 @@ fun UnifiedFilesScreen(
             nodes = state.nodes,
             onDismiss = { viewModel.onFileSelected(null) },
             onDelete = { viewModel.deleteFile(it) },
-            onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) }
+            onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) },
+            onView = { viewModel.previewPoolFile(it) }
         )
     }
 

@@ -49,7 +49,13 @@ data class DrivePoolUiState(
     val showSimulateMasterFullDialog: Boolean = false,
     val authConsentIntent: Intent? = null,
     val showAuthSetupDialog: Boolean = false,
-    val authErrorMessage: String? = null
+    val authErrorMessage: String? = null,
+    val viewingTarget: com.example.drivepool.ui.screens.viewer.ViewingFileTarget? = null,
+    val hasStoragePermission: Boolean = false,
+    val currentFolderPath: String? = null,
+    val currentFolderResult: com.example.drivepool.data.local.FolderContentResult? = null,
+    val isFolderViewMode: Boolean = false,
+    val isViewerLoading: Boolean = false
 )
 
 class DrivePoolViewModel(
@@ -111,6 +117,7 @@ class DrivePoolViewModel(
                 _uiState.update { it.copy(organizerInsights = insights) }
             }
         }
+        checkStoragePermission()
     }
 
     fun onCategoryFolderSelected(category: FileCategory?) {
@@ -256,6 +263,97 @@ class DrivePoolViewModel(
             pendingUploadFile = null
             pendingVirtualUpload = null
         }
+    }
+
+    fun checkStoragePermission() {
+        val granted = repository.hasStoragePermission()
+        _uiState.update { it.copy(hasStoragePermission = granted) }
+        if (granted && _uiState.value.isFolderViewMode && _uiState.value.currentFolderResult == null) {
+            loadFolder(null)
+        }
+    }
+
+    fun getManageStorageIntent(): Intent = repository.getManageStorageIntent()
+
+    fun toggleFolderViewMode() {
+        val next = !_uiState.value.isFolderViewMode
+        _uiState.update { it.copy(isFolderViewMode = next) }
+        if (next && _uiState.value.currentFolderResult == null) {
+            loadFolder(null)
+        }
+    }
+
+    fun loadFolder(path: String?) {
+        viewModelScope.launch {
+            val result = repository.listFolderContents(path)
+            _uiState.update {
+                it.copy(
+                    currentFolderPath = result.currentPath,
+                    currentFolderResult = result
+                )
+            }
+        }
+    }
+
+    fun navigateUpFolder() {
+        val parent = _uiState.value.currentFolderResult?.parentPath
+        loadFolder(parent)
+    }
+
+    fun previewPoolFile(file: PoolFile) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Loading \"${file.name}\"...") }
+            val result = repository.prepareFileForViewing(file)
+            result.onSuccess { localFile ->
+                _uiState.update {
+                    it.copy(
+                        isViewerLoading = false,
+                        statusMessage = null,
+                        viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
+                            name = file.name,
+                            mimeType = file.mimeType,
+                            sizeBytes = file.sizeBytes,
+                            file = localFile,
+                            sourceDescription = "Google Drive (${file.physicalNodeEmail})"
+                        )
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isViewerLoading = false,
+                        statusMessage = "Could not open file: ${err.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun previewPhoneFile(file: LocalPhoneFile) {
+        viewModelScope.launch {
+            val result = repository.preparePhoneFileForViewing(file)
+            result.onSuccess { localFile ->
+                _uiState.update {
+                    it.copy(
+                        viewingTarget = com.example.drivepool.ui.screens.viewer.ViewingFileTarget(
+                            name = file.name,
+                            mimeType = file.mimeType,
+                            sizeBytes = file.sizeBytes,
+                            file = localFile,
+                            sourceDescription = "Phone Internal Storage"
+                        )
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(statusMessage = "Could not resolve file: ${err.message}")
+                }
+            }
+        }
+    }
+
+    fun dismissFileViewer() {
+        _uiState.update { it.copy(viewingTarget = null) }
     }
 
     fun uploadFile(name: String, sizeBytes: Long, mimeType: String) {

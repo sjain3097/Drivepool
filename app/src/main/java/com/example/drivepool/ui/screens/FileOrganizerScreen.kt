@@ -82,6 +82,17 @@ fun FileOrganizerScreen(
             modifier = modifier
         )
     }
+
+    state.selectedFileForDetails?.let { file ->
+        FileDetailsSheet(
+            file = file,
+            nodes = state.nodes,
+            onDismiss = { viewModel.onFileSelected(null) },
+            onDelete = { viewModel.deleteFile(it) },
+            onRebalance = { f, targetId -> viewModel.rebalanceFile(f, targetId) },
+            onView = { viewModel.previewPoolFile(it) }
+        )
+    }
 }
 
 @Composable

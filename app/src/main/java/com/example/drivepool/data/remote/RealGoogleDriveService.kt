@@ -219,6 +219,34 @@ class RealGoogleDriveService(
         }
     }
 
+    override suspend fun downloadFile(node: DriveNode, remoteFileId: String, targetFile: java.io.File): Boolean = withContext(Dispatchers.IO) {
+        val token = getOAuthToken(node.email).getOrNull() ?: return@withContext false
+        try {
+            val url = URL("https://www.googleapis.com/drive/v3/files/$remoteFileId?alt=media")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+
+            if (conn.responseCode in 200..299) {
+                targetFile.parentFile?.mkdirs()
+                conn.inputStream.use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                true
+            } else {
+                Log.w(TAG, "Download failed with HTTP ${conn.responseCode}")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download file from Google Drive: ${e.message}", e)
+            false
+        }
+    }
+
     override suspend fun uploadMasterIndex(masterNode: DriveNode, indexJson: String): Boolean = withContext(Dispatchers.IO) {
         val token = getOAuthToken(masterNode.email).getOrNull() ?: return@withContext false
         try {

@@ -11,6 +11,7 @@ import com.example.drivepool.data.master.MasterIndexManager
 import com.example.drivepool.data.model.ClusterStats
 import com.example.drivepool.data.model.DriveNode
 import com.example.drivepool.data.model.FileCategory
+import com.example.drivepool.data.model.LocalPhoneFile
 import com.example.drivepool.data.model.MasterHealthStatus
 import com.example.drivepool.data.model.NodeRole
 import com.example.drivepool.data.model.PoolFile
@@ -424,6 +425,41 @@ class DrivePoolRepository(
 
     suspend fun refreshPhoneFiles() = withContext(Dispatchers.IO) {
         _phoneFiles.value = phoneManager.getPhoneFiles()
+    }
+
+    fun hasStoragePermission(): Boolean = phoneManager.hasStoragePermission()
+    fun getManageStorageIntent(): android.content.Intent = phoneManager.getManageStorageIntent()
+    suspend fun listFolderContents(path: String? = null): com.example.drivepool.data.local.FolderContentResult = phoneManager.listFolderContents(path)
+
+    suspend fun prepareFileForViewing(file: PoolFile): Result<java.io.File> = withContext(Dispatchers.IO) {
+        val cacheFolder = java.io.File(context.cacheDir, "cloud_view_cache").apply { mkdirs() }
+        val targetFile = java.io.File(cacheFolder, "${file.id}_${file.name}")
+
+        if (targetFile.exists() && targetFile.length() > 0) {
+            return@withContext Result.success(targetFile)
+        }
+
+        val node = _nodes.value.find { it.id == file.physicalNodeId }
+            ?: return@withContext Result.failure(Exception("Node for file not found"))
+
+        val success = googleDriveService.downloadFile(node, file.remoteDriveFileId, targetFile)
+        if (success && targetFile.exists() && targetFile.length() > 0) {
+            Result.success(targetFile)
+        } else {
+            if (targetFile.exists() && targetFile.length() == 0L) {
+                targetFile.delete()
+            }
+            Result.failure(Exception("Failed to download file from Google Drive for preview"))
+        }
+    }
+
+    suspend fun preparePhoneFileForViewing(file: LocalPhoneFile): Result<java.io.File> = withContext(Dispatchers.IO) {
+        val f = phoneManager.getFileForSharing(file)
+        if (f != null && f.exists()) {
+            Result.success(f)
+        } else {
+            Result.failure(Exception("Could not resolve file on device storage"))
+        }
     }
 
     /**

@@ -1,7 +1,9 @@
 package com.example.drivepool.ui.screens
 
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -25,17 +27,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -111,6 +117,13 @@ fun LocalPhoneFilesScreen(
         }
     }
 
+    // Android All Files Access Storage Permission Launcher
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.checkStoragePermission()
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         // Phone Storage Info Card
         Card(
@@ -177,6 +190,105 @@ fun LocalPhoneFilesScreen(
                     barHeight = 8.dp
                 )
             }
+        }
+
+        // All Files Access Permission Prompt Banner
+        if (!state.hasStoragePermission) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "All Files Access Required",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Text(
+                            text = "Grant storage permission to browse device folders and open local files.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                storagePermissionLauncher.launch(viewModel.getManageStorageIntent())
+                            } catch (e: Exception) {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                }
+                                storagePermissionLauncher.launch(intent)
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Grant", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // View Mode Selector: Categorized Files vs Folder Explorer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !state.isFolderViewMode,
+                onClick = { if (state.isFolderViewMode) viewModel.toggleFolderViewMode() },
+                label = { Text("Categorized Files") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Storage,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+            FilterChip(
+                selected = state.isFolderViewMode,
+                onClick = { if (!state.isFolderViewMode) viewModel.toggleFolderViewMode() },
+                label = { Text("Folder Explorer") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
         }
 
         // Phone Search Bar
@@ -305,70 +417,183 @@ fun LocalPhoneFilesScreen(
             }
         }
 
-        // Phone Category Filter Chips
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FileCategory.values().forEach { category ->
-                val isSelected = state.phoneCategory == category
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { viewModel.onPhoneCategorySelected(category) },
-                    label = {
-                        Text(
-                            text = if (category == FileCategory.ALL) "All Phone Files" else category.name.lowercase().replaceFirstChar { it.uppercase() },
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            }
-        }
+        if (state.isFolderViewMode) {
+            // Folder Explorer Navigation Bar
+            val currentResult = state.currentFolderResult
+            val displayPath = (state.currentFolderPath ?: "/storage/emulated/0")
+                .replace("/storage/emulated/0", "Internal Storage")
 
-        // Phone Files List
-        if (state.phoneFiles.isEmpty()) {
-            Box(
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                )
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Storage,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.size(64.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.navigateUpFolder() },
+                        enabled = currentResult?.parentPath != null
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Up",
+                            tint = if (currentResult?.parentPath != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    }
+
                     Text(
-                        text = if (state.phoneSearchQuery.isNotEmpty()) "No files match \"${state.phoneSearchQuery}\"" else "No local files found",
+                        text = displayPath,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+
+                    IconButton(onClick = { viewModel.loadFolder(state.currentFolderPath) }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            if (currentResult == null) {
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    viewModel.loadFolder(null)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (currentResult.folders.isEmpty() && currentResult.files.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "This folder is empty",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(currentResult.folders, key = { "folder_${it.path}" }) { folder ->
+                        FolderItemRow(
+                            folder = folder,
+                            onClick = { viewModel.loadFolder(folder.path) }
+                        )
+                    }
+                    items(currentResult.files, key = { "file_${it.id}" }) { file ->
+                        PhoneFileItem(
+                            file = file,
+                            onClick = { viewModel.onPhoneFileSelected(file) },
+                            onViewClick = { viewModel.previewPhoneFile(file) },
+                            onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                        )
+                    }
                 }
             }
         } else {
-            LazyColumn(
+            // Phone Category Filter Chips
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(state.phoneFiles, key = { it.id }) { file ->
-                    PhoneFileItem(
-                        file = file,
-                        onClick = { viewModel.onPhoneFileSelected(file) },
-                        onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                FileCategory.values().forEach { category ->
+                    val isSelected = state.phoneCategory == category
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { viewModel.onPhoneCategorySelected(category) },
+                        label = {
+                            Text(
+                                text = if (category == FileCategory.ALL) "All Phone Files" else category.name.lowercase().replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     )
+                }
+            }
+
+            // Phone Files List
+            if (state.phoneFiles.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Storage,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (state.phoneSearchQuery.isNotEmpty()) "No files match \"${state.phoneSearchQuery}\"" else "No local files found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(state.phoneFiles, key = { it.id }) { file ->
+                        PhoneFileItem(
+                            file = file,
+                            onClick = { viewModel.onPhoneFileSelected(file) },
+                            onViewClick = { viewModel.previewPhoneFile(file) },
+                            onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                        )
+                    }
                 }
             }
         }
@@ -379,6 +604,7 @@ fun LocalPhoneFilesScreen(
         PhoneFileDetailsSheet(
             file = file,
             onDismiss = { viewModel.onPhoneFileSelected(null) },
+            onView = { viewModel.previewPhoneFile(file) },
             onUpload = {
                 viewModel.uploadLocalPhoneFile(file)
                 viewModel.onPhoneFileSelected(null)
@@ -392,9 +618,73 @@ fun LocalPhoneFilesScreen(
 }
 
 @Composable
+private fun FolderItemRow(
+    folder: com.example.drivepool.data.local.PhoneFolderItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFFEF7E0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = Color(0xFFF29900),
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = folder.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${folder.itemCount} items",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Open folder",
+                tint = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun PhoneFileItem(
     file: LocalPhoneFile,
     onClick: () -> Unit,
+    onViewClick: () -> Unit,
     onUploadClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -444,7 +734,24 @@ private fun PhoneFileItem(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Direct View / Open Button
+            FilledTonalButton(
+                onClick = onViewClick,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileOpen,
+                    contentDescription = "View",
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("View", fontSize = 11.sp)
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
 
             // Upload Status / Button
             if (file.isUploadedToPool) {
@@ -472,10 +779,10 @@ private fun PhoneFileItem(
                     Icon(
                         imageVector = Icons.Default.CloudUpload,
                         contentDescription = "Upload to DrivePool",
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Upload", fontSize = 12.sp)
+                    Text("Upload", fontSize = 11.sp)
                 }
             }
         }
@@ -487,6 +794,7 @@ private fun PhoneFileItem(
 private fun PhoneFileDetailsSheet(
     file: LocalPhoneFile,
     onDismiss: () -> Unit,
+    onView: () -> Unit,
     onUpload: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -572,6 +880,26 @@ private fun PhoneFileDetailsSheet(
             }
 
             Spacer(modifier = Modifier.height(20.dp))
+
+            // Primary Action: Open / View File
+            Button(
+                onClick = {
+                    onDismiss()
+                    onView()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FileOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Open / View File", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
