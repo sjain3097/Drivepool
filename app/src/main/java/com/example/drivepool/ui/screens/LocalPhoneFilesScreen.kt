@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -116,6 +117,19 @@ fun LocalPhoneFilesScreen(
     var showBulkUploadDialog by remember { mutableStateOf(false) }
     var isStorageExpanded by remember { mutableStateOf(false) }
     val isSelectionMode = state.selectedPhoneFileIds.isNotEmpty()
+
+    // Back button handling inside Phone Files Screen
+    BackHandler(enabled = isSelectionMode) {
+        viewModel.clearPhoneFileSelection()
+    }
+
+    BackHandler(enabled = !isSelectionMode && state.selectedPhoneFile != null) {
+        viewModel.onPhoneFileSelected(null)
+    }
+
+    BackHandler(enabled = !isSelectionMode && state.selectedPhoneFile == null && state.isFolderViewMode && state.currentFolderResult?.parentPath != null) {
+        viewModel.navigateUpFolder()
+    }
 
     // Android System Document/Media Picker (Multiple File Support)
     val filePickerLauncher = rememberLauncherForActivityResult(

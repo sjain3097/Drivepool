@@ -1,8 +1,12 @@
 package com.example.drivepool.ui.main
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import com.example.drivepool.ui.components.ExitConfirmationDialog
 import androidx.compose.runtime.LaunchedEffect
 import com.example.drivepool.ui.screens.GoogleAuthSetupDialog
 import androidx.compose.foundation.layout.Box
@@ -74,8 +78,24 @@ fun DrivePoolApp(
     viewModel: DrivePoolViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var currentTab by rememberSaveable { mutableIntStateOf(0) }
+    var showExitDialog by rememberSaveable { mutableStateOf(false) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Root Back button handling: prompt for confirmation before exiting
+    val hasInnerBackHandling = uiState.viewerSession != null ||
+            uiState.viewingTarget != null ||
+            uiState.showAuthSetupDialog ||
+            uiState.selectedPhoneFileIds.isNotEmpty() ||
+            uiState.selectedFileIds.isNotEmpty() ||
+            uiState.selectedPhoneFile != null ||
+            uiState.selectedFileForDetails != null ||
+            (currentTab == 2 && uiState.isFolderViewMode && uiState.currentFolderResult?.parentPath != null)
+
+    BackHandler(enabled = !hasInnerBackHandling) {
+        showExitDialog = true
+    }
 
     val consentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -197,6 +217,16 @@ fun DrivePoolApp(
                         }
                     }
                 }
+            }
+
+            if (showExitDialog) {
+                ExitConfirmationDialog(
+                    onDismiss = { showExitDialog = false },
+                    onConfirmExit = {
+                        showExitDialog = false
+                        (context as? Activity)?.finish()
+                    }
+                )
             }
         }
     }

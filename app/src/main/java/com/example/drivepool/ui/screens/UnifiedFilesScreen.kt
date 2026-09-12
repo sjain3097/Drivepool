@@ -1,5 +1,6 @@
 package com.example.drivepool.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -93,6 +94,15 @@ fun UnifiedFilesScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
+
+    // Back navigation handling within Unified Files Screen
+    BackHandler(enabled = state.selectedFileIds.isNotEmpty()) {
+        viewModel.clearFileSelection()
+    }
+
+    BackHandler(enabled = state.selectedFileIds.isEmpty() && state.selectedFileForDetails != null) {
+        viewModel.onFileSelected(null)
+    }
 
     LaunchedEffect(state.statusMessage) {
         state.statusMessage?.let {
