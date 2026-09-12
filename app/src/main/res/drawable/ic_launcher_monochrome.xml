@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer Mask Circle (Nothing OS Line-Art Glyph) -->
+    <path
+        android:pathData="M 54,22 A 32,32 0 0,0 54,86 A 32,32 0 0,0 54,22 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.6"
+        android:fillColor="#00000000" />
+
+    <!-- Center Mask Dividing Seam -->
+    <path
+        android:pathData="M 54,22 L 54,86"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round" />
+
+    <!-- Left Eye Patch Outline -->
+    <path
+        android:pathData="M 49.9,34.3 C 39.2,34.3 30.2,42.5 29.4,54.0 C 28.6,64.7 36.8,72.9 48.3,74.5 C 49.9,74.5 49.9,70.4 49.9,65.5 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Right Eye Patch Outline -->
+    <path
+        android:pathData="M 58.1,34.3 C 68.8,34.3 77.8,42.5 78.6,54.0 C 79.4,64.7 71.2,72.9 59.7,74.5 C 58.1,74.5 58.1,70.4 58.1,65.5 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Left Slanted Eye -->
+    <path
+        android:pathData="M 35.1,53.2 Q 42.5,49.1 48.3,54.8 Q 43.3,57.3 37.6,57.3 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Right Slanted Eye -->
+    <path
+        android:pathData="M 72.9,53.2 Q 65.5,49.1 59.7,54.8 Q 64.7,57.3 70.4,57.3 Z"
+        android:fillColor="#FFFFFF" />
+
+</vector>
+
