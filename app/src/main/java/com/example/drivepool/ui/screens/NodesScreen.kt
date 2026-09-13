@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
@@ -35,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -79,14 +81,60 @@ fun NodesScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Header
+    Column(modifier = modifier.fillMaxSize()) {
+        // Sub-Tab Switcher: [ Accounts & Nodes ] | [ Cluster Health ]
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = state.accountsSubTab == com.example.drivepool.ui.viewmodel.AccountsSubTab.ACCOUNTS,
+                onClick = { viewModel.setAccountsSubTab(com.example.drivepool.ui.viewmodel.AccountsSubTab.ACCOUNTS) },
+                label = { Text("Accounts & Nodes", fontWeight = FontWeight.SemiBold) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = state.accountsSubTab == com.example.drivepool.ui.viewmodel.AccountsSubTab.CLUSTER,
+                onClick = { viewModel.setAccountsSubTab(com.example.drivepool.ui.viewmodel.AccountsSubTab.CLUSTER) },
+                label = { Text("Cluster Health", fontWeight = FontWeight.SemiBold) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.PieChart,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (state.accountsSubTab == com.example.drivepool.ui.viewmodel.AccountsSubTab.CLUSTER) {
+            ClusterDashboardScreen(
+                state = state,
+                viewModel = viewModel,
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -338,6 +386,8 @@ fun NodesScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+    }
     }
 
     if (state.showAddAccountDialog) {

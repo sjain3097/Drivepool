@@ -99,6 +99,13 @@ class DrivePoolRepository(
             }
         }.stateIn(externalScope, SharingStarted.Eagerly, com.example.drivepool.data.model.OrganizerInsights())
 
+    // Phone Storage Organizer Insights Flow
+    val phoneOrganizerInsights: StateFlow<com.example.drivepool.data.model.PhoneOrganizerInsights> =
+        combine(_phoneFiles, _files, deviceStorageInfo) { currentPhoneFiles, currentCloudFiles, storageInfo ->
+            organizerManager.analyzePhoneStorage(currentPhoneFiles, currentCloudFiles, storageInfo)
+        }.stateIn(externalScope, SharingStarted.Eagerly, com.example.drivepool.data.model.PhoneOrganizerInsights())
+
+
     init {
         externalScope.launch {
             loadInitialData()

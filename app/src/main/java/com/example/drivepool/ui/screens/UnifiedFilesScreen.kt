@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
@@ -104,6 +105,10 @@ fun UnifiedFilesScreen(
         viewModel.onFileSelected(null)
     }
 
+    BackHandler(enabled = state.selectedFileIds.isEmpty() && state.selectedFileForDetails == null && state.cloudSubTab == com.example.drivepool.ui.viewmodel.CloudSubTab.ORGANIZER && state.selectedCategoryFolder != null) {
+        viewModel.onCategoryFolderSelected(null)
+    }
+
     LaunchedEffect(state.statusMessage) {
         state.statusMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -170,9 +175,54 @@ fun UnifiedFilesScreen(
                 }
             }
 
-            // Search Bar (Instant search powered by Master Catalog)
-            OutlinedTextField(
-                value = state.searchQuery,
+            // Sub-Tab Switcher: [ Cloud Files ] | [ Cloud Organizer ]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = state.cloudSubTab == com.example.drivepool.ui.viewmodel.CloudSubTab.FILES,
+                    onClick = { viewModel.setCloudSubTab(com.example.drivepool.ui.viewmodel.CloudSubTab.FILES) },
+                    label = { Text("Cloud Files", fontWeight = FontWeight.SemiBold) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = state.cloudSubTab == com.example.drivepool.ui.viewmodel.CloudSubTab.ORGANIZER,
+                    onClick = { viewModel.setCloudSubTab(com.example.drivepool.ui.viewmodel.CloudSubTab.ORGANIZER) },
+                    label = { Text("Cloud Organizer", fontWeight = FontWeight.SemiBold) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (state.cloudSubTab == com.example.drivepool.ui.viewmodel.CloudSubTab.ORGANIZER) {
+                FileOrganizerScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Search Bar (Instant search powered by Master Catalog)
+                    OutlinedTextField(
+                        value = state.searchQuery,
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
                 placeholder = { Text("Search all files across pooled accounts...") },
                 leadingIcon = {
@@ -470,6 +520,8 @@ fun UnifiedFilesScreen(
                 }
             }
         }
+    }
+    }
     }
 
     // Modal File Details Sheet

@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -64,8 +65,10 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -103,6 +106,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.annotation.OptIn
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.core.content.FileProvider
 import com.example.drivepool.data.model.DriveNode
 import kotlinx.coroutines.Dispatchers
@@ -197,7 +213,8 @@ fun FileViewerDialog(
     target: ViewingFileTarget,
     onDismiss: () -> Unit,
     onNavigateNext: (() -> Unit)? = null,
-    onNavigatePrevious: (() -> Unit)? = null
+    onNavigatePrevious: (() -> Unit)? = null,
+    onDelete: ((ViewerFileItem) -> Unit)? = null
 ) {
     val session = remember(target) {
         FileViewerSession(
@@ -214,14 +231,15 @@ fun FileViewerDialog(
             )
         )
     }
-    FileViewerDialog(session = session, onDismiss = onDismiss)
+    FileViewerDialog(session = session, onDismiss = onDismiss, onDelete = onDelete)
 }
 
 @Composable
 fun FileViewerDialog(
     session: FileViewerSession,
     onDismiss: () -> Unit,
-    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null
+    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null,
+    onDelete: ((ViewerFileItem) -> Unit)? = null
 ) {
     if (session.items.isEmpty()) {
         onDismiss()
@@ -230,6 +248,7 @@ fun FileViewerDialog(
 
     val context = LocalContext.current
     var showControls by remember { mutableStateOf(true) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val initialPage = session.initialIndex.coerceIn(0, session.items.size - 1)
     val pagerState = rememberPagerState(
@@ -278,7 +297,8 @@ fun FileViewerDialog(
                             isCurrentPageZoomed = zoomed
                         }
                     },
-                    onPrepareFile = onPrepareFile
+                    onPrepareFile = onPrepareFile,
+                    isCurrent = isCurrent
                 )
             }
 
@@ -381,6 +401,19 @@ fun FileViewerDialog(
                                 tint = Color(0xFF60A5FA)
                             )
                         }
+
+                        // Delete button
+                        if (onDelete != null) {
+                            IconButton(
+                                onClick = { showDeleteConfirmDialog = true }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete File",
+                                    tint = Color(0xFFF87171)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -409,6 +442,53 @@ fun FileViewerDialog(
                     }
                 }
             }
+
+            // Delete Confirmation Dialog
+            if (showDeleteConfirmDialog) {
+                val isPhone = currentItem.phoneFile != null || currentItem.sourceDescription.contains("Phone", ignoreCase = true)
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirmDialog = false },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    },
+                    title = {
+                        Text(
+                            text = "Delete File?",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (isPhone) {
+                                "Are you sure you want to permanently delete \"${currentItem.name}\" from your phone's storage? This action cannot be undone."
+                            } else {
+                                "Are you sure you want to permanently delete \"${currentItem.name}\" from your DrivePool cluster? Storage space will be reclaimed on your nodes."
+                            }
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDeleteConfirmDialog = false
+                                onDelete?.invoke(currentItem)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Delete", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = { showDeleteConfirmDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -419,7 +499,8 @@ fun FileViewerPage(
     showControls: Boolean,
     onToggleControls: () -> Unit,
     onZoomChanged: (Boolean) -> Unit,
-    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null
+    onPrepareFile: (suspend (ViewerFileItem) -> File?)? = null,
+    isCurrent: Boolean = true
 ) {
     val context = LocalContext.current
     var resolvedFile by remember(item.id) {
@@ -443,6 +524,25 @@ fun FileViewerPage(
             item.name.endsWith(".png", ignoreCase = true) ||
             item.name.endsWith(".webp", ignoreCase = true) ||
             item.name.endsWith(".gif", ignoreCase = true)
+
+    val isVideo = item.mimeType.startsWith("video/") ||
+            item.name.endsWith(".mp4", ignoreCase = true) ||
+            item.name.endsWith(".mkv", ignoreCase = true) ||
+            item.name.endsWith(".mov", ignoreCase = true) ||
+            item.name.endsWith(".avi", ignoreCase = true) ||
+            item.name.endsWith(".webm", ignoreCase = true) ||
+            item.name.endsWith(".3gp", ignoreCase = true) ||
+            item.name.endsWith(".ts", ignoreCase = true) ||
+            item.name.endsWith(".flv", ignoreCase = true) ||
+            item.name.endsWith(".m4v", ignoreCase = true)
+
+    val isAudio = item.mimeType.startsWith("audio/") ||
+            item.name.endsWith(".mp3", ignoreCase = true) ||
+            item.name.endsWith(".wav", ignoreCase = true) ||
+            item.name.endsWith(".m4a", ignoreCase = true) ||
+            item.name.endsWith(".flac", ignoreCase = true) ||
+            item.name.endsWith(".aac", ignoreCase = true) ||
+            item.name.endsWith(".ogg", ignoreCase = true)
 
     val isPdf = item.mimeType == "application/pdf" || item.name.endsWith(".pdf", ignoreCase = true)
 
@@ -471,6 +571,13 @@ fun FileViewerPage(
                     showControls = showControls,
                     onToggleControls = onToggleControls,
                     onZoomChanged = onZoomChanged,
+                    onOpenExternal = { launchExternalViewer(context, resolvedFile!!, item.mimeType) }
+                )
+                isVideo || isAudio -> VideoViewer(
+                    file = resolvedFile!!,
+                    isCurrent = isCurrent,
+                    showControls = showControls,
+                    onToggleControls = onToggleControls,
                     onOpenExternal = { launchExternalViewer(context, resolvedFile!!, item.mimeType) }
                 )
                 isPdf -> PdfViewer(
@@ -505,6 +612,136 @@ fun FileViewerPage(
                     sourceDescription = item.sourceDescription
                 ),
                 onOpenExternal = {}
+            )
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun VideoViewer(
+    file: File,
+    isCurrent: Boolean,
+    showControls: Boolean,
+    onToggleControls: () -> Unit,
+    onOpenExternal: () -> Unit
+) {
+    val context = LocalContext.current
+    var playbackError by remember(file.absolutePath) { mutableStateOf<String?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val exoPlayer = remember(file.absolutePath) {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = error.localizedMessage ?: "Playback error encountered."
+            }
+        }
+        exoPlayer.addListener(listener)
+
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, exoPlayer) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                exoPlayer.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Automatically pause playback if the user swipes away to another slide
+    LaunchedEffect(isCurrent) {
+        if (!isCurrent) {
+            exoPlayer.pause()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        if (playbackError != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Video Playback Error",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = playbackError ?: "Unable to decode video format with hardware decoders.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.LightGray,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onOpenExternal,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open with External Player")
+                }
+            }
+        } else {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = true
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+                            val isVisible = visibility == android.view.View.VISIBLE
+                            if (isVisible != showControls) {
+                                onToggleControls()
+                            }
+                        })
+                    }
+                },
+                update = { playerView ->
+                    if (playerView.player != exoPlayer) {
+                        playerView.player = exoPlayer
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
     }

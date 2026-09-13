@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
@@ -127,6 +128,10 @@ fun LocalPhoneFilesScreen(
         viewModel.onPhoneFileSelected(null)
     }
 
+    BackHandler(enabled = !isSelectionMode && state.selectedPhoneFile == null && state.phoneSubTab == com.example.drivepool.ui.viewmodel.PhoneSubTab.ORGANIZER && state.selectedPhoneCategoryFolder != null) {
+        viewModel.onPhoneCategoryFolderSelected(null)
+    }
+
     BackHandler(enabled = !isSelectionMode && state.selectedPhoneFile == null && state.isFolderViewMode && state.currentFolderResult?.parentPath != null) {
         viewModel.navigateUpFolder()
     }
@@ -168,8 +173,53 @@ fun LocalPhoneFilesScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Phone Storage Info Card (Default Collapsed into a Blue Bar)
-        Card(
+        // Sub-Tab Switcher: [ Files & Folders ] | [ Storage Organizer ]
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = state.phoneSubTab == com.example.drivepool.ui.viewmodel.PhoneSubTab.FILES,
+                onClick = { viewModel.setPhoneSubTab(com.example.drivepool.ui.viewmodel.PhoneSubTab.FILES) },
+                label = { Text("Files & Folders", fontWeight = FontWeight.SemiBold) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = state.phoneSubTab == com.example.drivepool.ui.viewmodel.PhoneSubTab.ORGANIZER,
+                onClick = { viewModel.setPhoneSubTab(com.example.drivepool.ui.viewmodel.PhoneSubTab.ORGANIZER) },
+                label = { Text("Storage Organizer", fontWeight = FontWeight.SemiBold) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (state.phoneSubTab == com.example.drivepool.ui.viewmodel.PhoneSubTab.ORGANIZER) {
+            PhoneOrganizerView(
+                state = state,
+                viewModel = viewModel,
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // Phone Storage Info Card (Default Collapsed into a Blue Bar)
+                Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -851,6 +901,8 @@ fun LocalPhoneFilesScreen(
                 }
             }
         }
+    }
+    }
     }
 
     // Phone File Details Bottom Sheet

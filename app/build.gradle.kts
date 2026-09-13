@@ -85,4 +85,9 @@ dependencies {
 
   // Google Sign-In & Auth
   implementation(libs.play.services.auth)
+
+  // Media3 / ExoPlayer
+  implementation(libs.androidx.media3.exoplayer)
+  implementation(libs.androidx.media3.ui)
+  implementation(libs.androidx.media3.common)
 }

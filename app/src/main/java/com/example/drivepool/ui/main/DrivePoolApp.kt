@@ -67,9 +67,7 @@ enum class NavigationTab(
     val unselectedIcon: ImageVector
 ) {
     DRIVE("Cloud", Icons.Filled.Cloud, Icons.Outlined.Cloud),
-    ORGANIZER("Organizer", Icons.Filled.FolderSpecial, Icons.Outlined.FolderSpecial),
     PHONE("Phone", Icons.Filled.PhoneAndroid, Icons.Outlined.PhoneAndroid),
-    CLUSTER("Cluster", Icons.Filled.PieChart, Icons.Outlined.PieChart),
     ACCOUNTS("Accounts", Icons.Filled.ManageAccounts, Icons.Outlined.ManageAccounts)
 }
 
@@ -91,7 +89,9 @@ fun DrivePoolApp(
             uiState.selectedFileIds.isNotEmpty() ||
             uiState.selectedPhoneFile != null ||
             uiState.selectedFileForDetails != null ||
-            (currentTab == 2 && uiState.isFolderViewMode && uiState.currentFolderResult?.parentPath != null)
+            (currentTab == 0 && uiState.cloudSubTab == com.example.drivepool.ui.viewmodel.CloudSubTab.ORGANIZER && uiState.selectedCategoryFolder != null) ||
+            (currentTab == 1 && uiState.phoneSubTab == com.example.drivepool.ui.viewmodel.PhoneSubTab.ORGANIZER && uiState.selectedPhoneCategoryFolder != null) ||
+            (currentTab == 1 && uiState.isFolderViewMode && uiState.currentFolderResult?.parentPath != null)
 
     BackHandler(enabled = !hasInnerBackHandling) {
         showExitDialog = true
@@ -155,21 +155,13 @@ fun DrivePoolApp(
                 0 -> UnifiedFilesScreen(
                     state = uiState,
                     viewModel = viewModel,
-                    onSwitchToPhone = { currentTab = 2 }
+                    onSwitchToPhone = { currentTab = 1 }
                 )
-                1 -> FileOrganizerScreen(
+                1 -> LocalPhoneFilesScreen(
                     state = uiState,
                     viewModel = viewModel
                 )
-                2 -> LocalPhoneFilesScreen(
-                    state = uiState,
-                    viewModel = viewModel
-                )
-                3 -> ClusterDashboardScreen(
-                    state = uiState,
-                    viewModel = viewModel
-                )
-                4 -> NodesScreen(
+                2 -> NodesScreen(
                     state = uiState,
                     viewModel = viewModel
                 )
@@ -186,12 +178,14 @@ fun DrivePoolApp(
                 FileViewerDialog(
                     session = session,
                     onDismiss = { viewModel.dismissFileViewer() },
-                    onPrepareFile = { item -> viewModel.prepareFileForViewer(item) }
+                    onPrepareFile = { item -> viewModel.prepareFileForViewer(item) },
+                    onDelete = { item -> viewModel.deleteViewerItem(item) }
                 )
             } ?: uiState.viewingTarget?.let { target ->
                 FileViewerDialog(
                     target = target,
-                    onDismiss = { viewModel.dismissFileViewer() }
+                    onDismiss = { viewModel.dismissFileViewer() },
+                    onDelete = { item -> viewModel.deleteViewerItem(item) }
                 )
             }
 

@@ -24,6 +24,21 @@ enum class StorageViewMode {
     PHONE_STORAGE
 }
 
+enum class CloudSubTab {
+    FILES,
+    ORGANIZER
+}
+
+enum class PhoneSubTab {
+    FILES,
+    ORGANIZER
+}
+
+enum class AccountsSubTab {
+    ACCOUNTS,
+    CLUSTER
+}
+
 enum class FileViewLayout {
     VERTICAL_LIST,
     HORIZONTAL_GRID,
@@ -33,6 +48,9 @@ enum class FileViewLayout {
 data class DrivePoolUiState(
     val activeStorageMode: StorageViewMode = StorageViewMode.CLOUD_POOL,
     val fileViewLayout: FileViewLayout = FileViewLayout.VERTICAL_LIST,
+    val cloudSubTab: CloudSubTab = CloudSubTab.FILES,
+    val phoneSubTab: PhoneSubTab = PhoneSubTab.FILES,
+    val accountsSubTab: AccountsSubTab = AccountsSubTab.ACCOUNTS,
     val nodes: List<DriveNode> = emptyList(),
     val files: List<PoolFile> = emptyList(),
     val phoneFiles: List<LocalPhoneFile> = emptyList(),
@@ -44,9 +62,11 @@ data class DrivePoolUiState(
     val selectedFileForDetails: PoolFile? = null,
     val selectedPhoneFile: LocalPhoneFile? = null,
     val selectedCategoryFolder: FileCategory? = null,
+    val selectedPhoneCategoryFolder: FileCategory? = null,
     val selectedFileIds: Set<String> = emptySet(),
     val selectedPhoneFileIds: Set<String> = emptySet(),
     val organizerInsights: com.example.drivepool.data.model.OrganizerInsights = com.example.drivepool.data.model.OrganizerInsights(),
+    val phoneOrganizerInsights: com.example.drivepool.data.model.PhoneOrganizerInsights = com.example.drivepool.data.model.PhoneOrganizerInsights(),
     val isUploading: Boolean = false,
     val isTransferring: Boolean = false,
     val statusMessage: String? = null,
@@ -58,6 +78,7 @@ data class DrivePoolUiState(
     val showFailoverDialog: Boolean = false,
     val showSimulateMasterFullDialog: Boolean = false,
     val authConsentIntent: Intent? = null,
+
     val showAuthSetupDialog: Boolean = false,
     val authErrorMessage: String? = null,
     val viewerSession: com.example.drivepool.ui.screens.viewer.FileViewerSession? = null,
@@ -128,11 +149,32 @@ class DrivePoolViewModel(
                 _uiState.update { it.copy(organizerInsights = insights) }
             }
         }
+        viewModelScope.launch {
+            repository.phoneOrganizerInsights.collect { insights ->
+                _uiState.update { it.copy(phoneOrganizerInsights = insights) }
+            }
+        }
         checkStoragePermission()
+    }
+
+    fun setCloudSubTab(tab: CloudSubTab) {
+        _uiState.update { it.copy(cloudSubTab = tab) }
+    }
+
+    fun setPhoneSubTab(tab: PhoneSubTab) {
+        _uiState.update { it.copy(phoneSubTab = tab) }
+    }
+
+    fun setAccountsSubTab(tab: AccountsSubTab) {
+        _uiState.update { it.copy(accountsSubTab = tab) }
     }
 
     fun onCategoryFolderSelected(category: FileCategory?) {
         _uiState.update { it.copy(selectedCategoryFolder = category) }
+    }
+
+    fun onPhoneCategoryFolderSelected(category: FileCategory?) {
+        _uiState.update { it.copy(selectedPhoneCategoryFolder = category) }
     }
 
     fun runAutoOrganize() {
@@ -142,6 +184,7 @@ class DrivePoolViewModel(
             _uiState.update { it.copy(statusMessage = "Successfully organized $count files into category folders!") }
         }
     }
+
 
     fun setStorageViewMode(mode: StorageViewMode) {
         _uiState.update { it.copy(activeStorageMode = mode) }
@@ -514,6 +557,64 @@ class DrivePoolViewModel(
         activePoolFileIndex = -1
     }
 
+    fun deleteViewerItem(item: com.example.drivepool.ui.screens.viewer.ViewerFileItem) {
+        viewModelScope.launch {
+            if (item.phoneFile != null) {
+                val deleted = repository.deleteLocalPhoneFile(item.phoneFile)
+                if (deleted && _uiState.value.isFolderViewMode) {
+                    loadFolder(_uiState.value.currentFolderPath)
+                }
+                _uiState.update {
+                    it.copy(statusMessage = "Deleted \"${item.name}\" from phone storage.")
+                }
+            } else if (item.poolFile != null) {
+                repository.deleteFile(item.poolFile)
+                _uiState.update {
+                    it.copy(statusMessage = "Deleted \"${item.name}\" from cluster.")
+                }
+            } else {
+                val phoneMatch = _uiState.value.phoneFiles.find { it.id == item.id || it.name == item.name }
+                if (phoneMatch != null) {
+                    val deleted = repository.deleteLocalPhoneFile(phoneMatch)
+                    if (deleted && _uiState.value.isFolderViewMode) {
+                        loadFolder(_uiState.value.currentFolderPath)
+                    }
+                    _uiState.update {
+                        it.copy(statusMessage = "Deleted \"${item.name}\" from phone storage.")
+                    }
+                } else {
+                    val poolMatch = _uiState.value.files.find { it.id == item.id || it.name == item.name }
+                    if (poolMatch != null) {
+                        repository.deleteFile(poolMatch)
+                        _uiState.update {
+                            it.copy(statusMessage = "Deleted \"${item.name}\" from cluster.")
+                        }
+                    } else {
+                        item.file?.delete()
+                        _uiState.update {
+                            it.copy(statusMessage = "Deleted \"${item.name}\".")
+                        }
+                    }
+                }
+            }
+
+            // Update viewer session if open
+            val currentSession = _uiState.value.viewerSession
+            if (currentSession != null) {
+                val newItems = currentSession.items.filter { it.id != item.id }
+                if (newItems.isEmpty()) {
+                    dismissFileViewer()
+                } else {
+                    _uiState.update {
+                        it.copy(viewerSession = currentSession.copy(items = newItems))
+                    }
+                }
+            } else {
+                dismissFileViewer()
+            }
+        }
+    }
+
     fun sharePoolFile(context: Context, file: PoolFile) {
         viewModelScope.launch {
             _uiState.update { it.copy(isViewerLoading = true, statusMessage = "Preparing \"${file.name}\" to share...") }
@@ -605,6 +706,23 @@ class DrivePoolViewModel(
                         statusMessage = "Deleted ${file.name} from phone storage."
                     )
                 }
+            }
+        }
+    }
+
+    fun deletePhoneFiles(files: List<LocalPhoneFile>) {
+        if (files.isEmpty()) return
+        val ids = files.map { it.id }.toSet()
+        viewModelScope.launch {
+            val count = repository.deleteLocalPhoneFiles(ids, files)
+            if (_uiState.value.isFolderViewMode) {
+                loadFolder(_uiState.value.currentFolderPath)
+            }
+            _uiState.update {
+                it.copy(
+                    selectedPhoneFileIds = it.selectedPhoneFileIds - ids,
+                    statusMessage = "Permanently deleted $count files from phone storage."
+                )
             }
         }
     }
