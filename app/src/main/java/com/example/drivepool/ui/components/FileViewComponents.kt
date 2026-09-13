@@ -26,6 +26,10 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material.icons.filled.ViewList
@@ -34,6 +38,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +48,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -363,6 +374,166 @@ fun FileViewModeHeader(
     }
 }
 
+@Composable
+fun PoolFileOptionsMenu(
+    file: PoolFile,
+    onOpen: () -> Unit,
+    onDetails: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Options for ${file.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Open") },
+                leadingIcon = {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onOpen()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("File Details & Node") },
+                leadingIcon = {
+                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onDetails()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Share") },
+                leadingIcon = {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onShare()
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Delete from Cloud", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun PhoneFileOptionsMenu(
+    file: LocalPhoneFile,
+    onOpen: () -> Unit,
+    onDetails: () -> Unit,
+    onShare: () -> Unit,
+    onUpload: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Options for ${file.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Open") },
+                leadingIcon = {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onOpen()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(if (file.isUploadedToPool) "Backed Up on Cloud" else "Upload to DrivePool") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = if (file.isUploadedToPool) Icons.Default.CloudDone else Icons.Default.CloudUpload,
+                        contentDescription = null,
+                        tint = if (file.isUploadedToPool) Color(0xFF137333) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onUpload()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("File Details") },
+                leadingIcon = {
+                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onDetails()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Share") },
+                leadingIcon = {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onShare()
+                }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Delete from Phone", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                }
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun UnifiedFileGridCard(
@@ -371,6 +542,10 @@ fun UnifiedFileGridCard(
     onLongClick: () -> Unit = {},
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
+    onOpen: (() -> Unit)? = null,
+    onDetails: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -428,26 +603,39 @@ fun UnifiedFileGridCard(
                 }
             }
 
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(10.dp)
+                    .padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = file.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${file.formattedSize} • ${file.formattedDate}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${file.formattedSize} • ${file.formattedDate}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (!isSelectionMode && onDetails != null && onShare != null && onDelete != null) {
+                    PoolFileOptionsMenu(
+                        file = file,
+                        onOpen = { onOpen?.invoke() ?: onClick() },
+                        onDetails = onDetails,
+                        onShare = onShare,
+                        onDelete = onDelete
+                    )
+                }
             }
         }
     }
@@ -461,6 +649,11 @@ fun PhoneFileGridCard(
     onLongClick: () -> Unit = {},
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
+    onOpen: (() -> Unit)? = null,
+    onDetails: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onUpload: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -508,37 +701,37 @@ fun PhoneFileGridCard(
                 }
             }
 
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(10.dp)
+                    .padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = file.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = file.formattedSize,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (file.isUploadedToPool) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDone,
-                            contentDescription = "Uploaded to DrivePool",
-                            tint = Color(0xFF137333),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                }
+
+                if (!isSelectionMode && onDetails != null && onShare != null && onUpload != null && onDelete != null) {
+                    PhoneFileOptionsMenu(
+                        file = file,
+                        onOpen = { onOpen?.invoke() ?: onClick() },
+                        onDetails = onDetails,
+                        onShare = onShare,
+                        onUpload = onUpload,
+                        onDelete = onDelete
+                    )
                 }
             }
         }

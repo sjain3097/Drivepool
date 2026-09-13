@@ -78,6 +78,7 @@ import com.example.drivepool.ui.components.FileIcon
 import com.example.drivepool.ui.components.FileSelectionHeader
 import com.example.drivepool.ui.components.FileThumbnail
 import com.example.drivepool.ui.components.FileViewModeHeader
+import com.example.drivepool.ui.components.PoolFileOptionsMenu
 import com.example.drivepool.ui.components.UnifiedFileGridCard
 import com.example.drivepool.ui.components.UnifiedFileRowCard
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
@@ -412,12 +413,15 @@ fun UnifiedFilesScreen(
                                         if (isSelectionMode) {
                                             viewModel.toggleFileSelection(file.id)
                                         } else {
-                                            viewModel.onFileSelected(file)
+                                            viewModel.previewPoolFile(file, state.files)
                                         }
                                     },
                                     onLongClick = {
                                         viewModel.toggleFileSelection(file.id)
-                                    }
+                                    },
+                                    onDetails = { viewModel.onFileSelected(file) },
+                                    onShare = { viewModel.sharePoolFile(context, file) },
+                                    onDelete = { viewModel.deleteFile(file) }
                                 )
                             }
                         }
@@ -442,12 +446,16 @@ fun UnifiedFilesScreen(
                                         if (isSelectionMode) {
                                             viewModel.toggleFileSelection(file.id)
                                         } else {
-                                            viewModel.onFileSelected(file)
+                                            viewModel.previewPoolFile(file, state.files)
                                         }
                                     },
                                     onLongClick = {
                                         viewModel.toggleFileSelection(file.id)
-                                    }
+                                    },
+                                    onOpen = { viewModel.previewPoolFile(file, state.files) },
+                                    onDetails = { viewModel.onFileSelected(file) },
+                                    onShare = { viewModel.sharePoolFile(context, file) },
+                                    onDelete = { viewModel.deleteFile(file) }
                                 )
                             }
                         }
@@ -479,7 +487,7 @@ fun UnifiedFilesScreen(
                                             if (isSelectionMode) {
                                                 viewModel.toggleFileSelection(file.id)
                                             } else {
-                                                viewModel.onFileSelected(file)
+                                                viewModel.previewPoolFile(file, state.files)
                                             }
                                         },
                                         onLongClick = {
@@ -506,12 +514,15 @@ fun UnifiedFilesScreen(
                                             if (isSelectionMode) {
                                                 viewModel.toggleFileSelection(file.id)
                                             } else {
-                                                viewModel.onFileSelected(file)
+                                                viewModel.previewPoolFile(file, state.files)
                                             }
                                         },
                                         onLongClick = {
                                             viewModel.toggleFileSelection(file.id)
-                                        }
+                                        },
+                                        onDetails = { viewModel.onFileSelected(file) },
+                                        onShare = { viewModel.sharePoolFile(context, file) },
+                                        onDelete = { viewModel.deleteFile(file) }
                                     )
                                 }
                             }
@@ -570,6 +581,9 @@ private fun UnifiedFileItem(
     onLongClick: () -> Unit = {},
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
+    onDetails: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -641,12 +655,13 @@ private fun UnifiedFileItem(
                 )
             }
 
-            if (!isSelectionMode) {
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "View Details",
-                    tint = MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(20.dp)
+            if (!isSelectionMode && onDetails != null && onShare != null && onDelete != null) {
+                PoolFileOptionsMenu(
+                    file = file,
+                    onOpen = onClick,
+                    onDetails = onDetails,
+                    onShare = onShare,
+                    onDelete = onDelete
                 )
             }
         }

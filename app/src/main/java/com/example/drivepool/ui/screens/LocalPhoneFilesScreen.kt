@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileOpen
@@ -100,6 +101,7 @@ import com.example.drivepool.ui.components.FileSelectionHeader
 import com.example.drivepool.ui.components.FileThumbnail
 import com.example.drivepool.ui.components.FileViewModeHeader
 import com.example.drivepool.ui.components.PhoneFileGridCard
+import com.example.drivepool.ui.components.PhoneFileOptionsMenu
 import com.example.drivepool.ui.components.PhoneFileRowCard
 import com.example.drivepool.ui.components.StorageProgressBar
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
@@ -682,14 +684,16 @@ fun LocalPhoneFilesScreen(
                                 if (isSelectionMode) {
                                     viewModel.togglePhoneFileSelection(file.id)
                                 } else {
-                                    viewModel.onPhoneFileSelected(file)
+                                    viewModel.previewPhoneFile(file, currentResult.files)
                                 }
                             },
                             onLongClick = {
                                 viewModel.togglePhoneFileSelection(file.id)
                             },
-                            onViewClick = { viewModel.previewPhoneFile(file, currentResult.files) },
-                            onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                            onDetails = { viewModel.onPhoneFileSelected(file) },
+                            onShare = { viewModel.sharePhoneFile(context, file) },
+                            onUpload = { viewModel.uploadLocalPhoneFile(file) },
+                            onDelete = { viewModel.deletePhoneFile(file) }
                         )
                     }
                 }
@@ -789,14 +793,16 @@ fun LocalPhoneFilesScreen(
                                         if (isSelectionMode) {
                                             viewModel.togglePhoneFileSelection(file.id)
                                         } else {
-                                            viewModel.onPhoneFileSelected(file)
+                                            viewModel.previewPhoneFile(file, state.phoneFiles)
                                         }
                                     },
                                     onLongClick = {
                                         viewModel.togglePhoneFileSelection(file.id)
                                     },
-                                    onViewClick = { viewModel.previewPhoneFile(file, state.phoneFiles) },
-                                    onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                                    onDetails = { viewModel.onPhoneFileSelected(file) },
+                                    onShare = { viewModel.sharePhoneFile(context, file) },
+                                    onUpload = { viewModel.uploadLocalPhoneFile(file) },
+                                    onDelete = { viewModel.deletePhoneFile(file) }
                                 )
                             }
                         }
@@ -826,7 +832,12 @@ fun LocalPhoneFilesScreen(
                                     },
                                     onLongClick = {
                                         viewModel.togglePhoneFileSelection(file.id)
-                                    }
+                                    },
+                                    onOpen = { viewModel.previewPhoneFile(file, state.phoneFiles) },
+                                    onDetails = { viewModel.onPhoneFileSelected(file) },
+                                    onShare = { viewModel.sharePhoneFile(context, file) },
+                                    onUpload = { viewModel.uploadLocalPhoneFile(file) },
+                                    onDelete = { viewModel.deletePhoneFile(file) }
                                 )
                             }
                         }
@@ -885,14 +896,16 @@ fun LocalPhoneFilesScreen(
                                             if (isSelectionMode) {
                                                 viewModel.togglePhoneFileSelection(file.id)
                                             } else {
-                                                viewModel.onPhoneFileSelected(file)
+                                                viewModel.previewPhoneFile(file, state.phoneFiles)
                                             }
                                         },
                                         onLongClick = {
                                             viewModel.togglePhoneFileSelection(file.id)
                                         },
-                                        onViewClick = { viewModel.previewPhoneFile(file, state.phoneFiles) },
-                                        onUploadClick = { viewModel.uploadLocalPhoneFile(file) }
+                                        onDetails = { viewModel.onPhoneFileSelected(file) },
+                                        onShare = { viewModel.sharePhoneFile(context, file) },
+                                        onUpload = { viewModel.uploadLocalPhoneFile(file) },
+                                        onDelete = { viewModel.deletePhoneFile(file) }
                                     )
                                 }
                             }
@@ -1032,8 +1045,10 @@ private fun PhoneFileItem(
     onLongClick: () -> Unit = {},
     isSelected: Boolean = false,
     isSelectionMode: Boolean = false,
-    onViewClick: () -> Unit,
-    onUploadClick: () -> Unit,
+    onDetails: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onUpload: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1103,56 +1118,26 @@ private fun PhoneFileItem(
             }
 
             if (!isSelectionMode) {
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Direct View / Open Button
-                FilledTonalButton(
-                    onClick = onViewClick,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                ) {
+                if (file.isUploadedToPool) {
                     Icon(
-                        imageVector = Icons.Default.FileOpen,
-                        contentDescription = "View",
-                        modifier = Modifier.size(15.dp)
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = "Backed Up",
+                        tint = Color(0xFF137333),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .padding(end = 4.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("View", fontSize = 11.sp)
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Upload Status / Button
-                if (file.isUploadedToPool) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Uploaded",
-                            tint = Color(0xFF137333),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Backed Up",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF137333)
-                        )
-                    }
-                } else {
-                    Button(
-                        onClick = onUploadClick,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudUpload,
-                            contentDescription = "Upload to DrivePool",
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Upload", fontSize = 11.sp)
-                    }
+                if (onDetails != null && onShare != null && onUpload != null && onDelete != null) {
+                    PhoneFileOptionsMenu(
+                        file = file,
+                        onOpen = onClick,
+                        onDetails = onDetails,
+                        onShare = onShare,
+                        onUpload = onUpload,
+                        onDelete = onDelete
+                    )
                 }
             }
         }

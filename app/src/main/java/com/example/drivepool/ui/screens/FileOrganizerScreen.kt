@@ -55,6 +55,7 @@ import com.example.drivepool.data.model.FileCategory
 import com.example.drivepool.data.model.PoolFile
 import com.example.drivepool.ui.components.FileIcon
 import com.example.drivepool.ui.components.FileThumbnail
+import com.example.drivepool.ui.components.PoolFileOptionsMenu
 import com.example.drivepool.ui.components.StorageProgressBar
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
@@ -74,7 +75,10 @@ fun FileOrganizerScreen(
             category = selectedCategory,
             files = state.files.filter { it.category == selectedCategory },
             onBack = { viewModel.onCategoryFolderSelected(null) },
-            onFileClick = { viewModel.onFileSelected(it) },
+            onFileClick = { viewModel.previewPoolFile(it, state.files) },
+            onDetails = { viewModel.onFileSelected(it) },
+            onShare = { viewModel.sharePoolFile(context, it) },
+            onDelete = { viewModel.deleteFile(it) },
             modifier = modifier
         )
     } else {
@@ -105,6 +109,7 @@ private fun OrganizerMainView(
     viewModel: DrivePoolViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val insights = state.organizerInsights
 
     Column(
@@ -214,7 +219,7 @@ private fun OrganizerMainView(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { viewModel.onFileSelected(file) },
+                        .clickable { viewModel.previewPoolFile(file, state.files) },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -246,6 +251,13 @@ private fun OrganizerMainView(
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
+                        )
+                        PoolFileOptionsMenu(
+                            file = file,
+                            onOpen = { viewModel.previewPoolFile(file, state.files) },
+                            onDetails = { viewModel.onFileSelected(file) },
+                            onShare = { viewModel.sharePoolFile(context, file) },
+                            onDelete = { viewModel.deleteFile(file) }
                         )
                     }
                 }
@@ -384,6 +396,9 @@ private fun CategoryFolderDetailView(
     files: List<PoolFile>,
     onBack: () -> Unit,
     onFileClick: (PoolFile) -> Unit,
+    onDetails: (PoolFile) -> Unit,
+    onShare: (PoolFile) -> Unit,
+    onDelete: (PoolFile) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val totalSize = files.sumOf { it.sizeBytes }
@@ -468,11 +483,12 @@ private fun CategoryFolderDetailView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.outlineVariant,
-                                modifier = Modifier.size(20.dp)
+                            PoolFileOptionsMenu(
+                                file = file,
+                                onOpen = { onFileClick(file) },
+                                onDetails = { onDetails(file) },
+                                onShare = { onShare(file) },
+                                onDelete = { onDelete(file) }
                             )
                         }
                     }

@@ -77,6 +77,7 @@ import com.example.drivepool.data.model.PhoneCategorySummary
 import com.example.drivepool.data.model.PhoneDuplicateGroup
 import com.example.drivepool.ui.components.FileIcon
 import com.example.drivepool.ui.components.FileThumbnail
+import com.example.drivepool.ui.components.PhoneFileOptionsMenu
 import com.example.drivepool.ui.viewmodel.DrivePoolUiState
 import com.example.drivepool.ui.viewmodel.DrivePoolViewModel
 
@@ -86,6 +87,7 @@ fun PhoneOrganizerView(
     viewModel: DrivePoolViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val selectedCategory = state.selectedPhoneCategoryFolder
 
     if (selectedCategory != null) {
@@ -97,6 +99,8 @@ fun PhoneOrganizerView(
             onFileClick = { file, categoryFiles ->
                 viewModel.previewPhoneFile(file, categoryFiles)
             },
+            onDetails = { viewModel.onPhoneFileSelected(it) },
+            onShare = { viewModel.sharePhoneFile(context, it) },
             onUploadToCloud = { viewModel.uploadLocalPhoneFile(it) },
             onDelete = { viewModel.deletePhoneFile(it) },
             onDeleteMultiple = { viewModel.deletePhoneFiles(it) },
@@ -121,6 +125,7 @@ private fun PhoneOrganizerMainView(
 ) {
     val insights = state.phoneOrganizerInsights
     val storageInfo = state.deviceStorageInfo
+    val context = LocalContext.current
 
     // Selection & Deletion state for Largest Files
     var isSelectingLargestFiles by remember { mutableStateOf(false) }
@@ -643,29 +648,14 @@ private fun PhoneOrganizerMainView(
                             color = MaterialTheme.colorScheme.primary
                         )
                         if (!isSelectingLargestFiles) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            IconButton(
-                                onClick = { viewModel.uploadLocalPhoneFile(file) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudUpload,
-                                    contentDescription = "Upload to CloudPool",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = { fileToDeleteSingle = file },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete from device",
-                                    tint = Color(0xFFC5221F),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            PhoneFileOptionsMenu(
+                                file = file,
+                                onOpen = { viewModel.previewPhoneFile(file, insights.largestFiles) },
+                                onDetails = { viewModel.onPhoneFileSelected(file) },
+                                onShare = { viewModel.sharePhoneFile(context, file) },
+                                onUpload = { viewModel.uploadLocalPhoneFile(file) },
+                                onDelete = { fileToDeleteSingle = file }
+                            )
                         }
                     }
                 }
@@ -874,6 +864,8 @@ private fun PhoneCategoryFolderDetailView(
     files: List<LocalPhoneFile>,
     onBack: () -> Unit,
     onFileClick: (LocalPhoneFile, List<LocalPhoneFile>) -> Unit,
+    onDetails: (LocalPhoneFile) -> Unit,
+    onShare: (LocalPhoneFile) -> Unit,
     onUploadToCloud: (LocalPhoneFile) -> Unit,
     onDelete: (LocalPhoneFile) -> Unit,
     onDeleteMultiple: (List<LocalPhoneFile>) -> Unit,
@@ -1151,29 +1143,14 @@ private fun PhoneCategoryFolderDetailView(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             if (!isSelectionMode) {
-                                Spacer(modifier = Modifier.width(4.dp))
-                                IconButton(
-                                    onClick = { onUploadToCloud(file) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudUpload,
-                                        contentDescription = "Upload to CloudPool",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { fileToDeleteSingle = file },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete",
-                                        tint = Color(0xFFC5221F),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                PhoneFileOptionsMenu(
+                                    file = file,
+                                    onOpen = { onFileClick(file, filteredFiles) },
+                                    onDetails = { onDetails(file) },
+                                    onShare = { onShare(file) },
+                                    onUpload = { onUploadToCloud(file) },
+                                    onDelete = { fileToDeleteSingle = file }
+                                )
                             }
                         }
                     }
